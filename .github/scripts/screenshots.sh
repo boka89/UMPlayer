@@ -98,10 +98,16 @@ run_theme() { # theme-number name
   shot "$2-playing"
   click 120 411 3          # Now Playing (visualizer)
   shot "$2-nowplaying"
-  click 1221 326 2         # full screen button on the visualizer
+  xdotool mousemove 900 480; sleep 0.8   # mouse over the visualizer: its buttons appear
+  shot "$2-nowplaying-controls"
+  click 1221 326 3         # full screen button (the buttons fade out when the mouse rests)
   shot "$2-viz-0"
+  xdotool mousemove 700 400; sleep 0.6
+  shot "$2-viz-controls"   # mouse moved: buttons and hints are back
   for i in 1 2 3; do
-    click 640 300 2        # left click: next style
+    xdotool mousemove 700 420; sleep 0.6
+    click 1209 37 0.5      # the › button (next style)
+    xdotool mousemove 640 450; sleep 3.2   # rest: buttons fade out
     shot "$2-viz-$i"
   done
   xdotool windowfocus "$WID" 2>/dev/null || true

@@ -1069,6 +1069,45 @@ export component EqPanel inherits Rectangle {
 
 /// Visualizer controls, the same in the Now Playing card and in full
 /// screen: previous / next style, the style name, and full screen on/off.
+/// Watches the mouse over an area: `active` turns on when the mouse moves
+/// and off again after `delay` without movement (unless the mouse rests on
+/// the `keep-*` region, e.g. the controls). Clicks do nothing.
+export component IdleArea inherits TouchArea {
+    in property <duration> delay: 2500ms;
+    /// Hide the mouse pointer while idle (full screen).
+    in property <bool> hide-cursor;
+    in property <length> keep-x;
+    in property <length> keep-y;
+    in property <length> keep-width;
+    in property <length> keep-height;
+    out property <bool> active: false;
+
+    mouse-cursor: root.hide-cursor && !root.active ? MouseCursor.none : MouseCursor.default;
+
+    function poke() {
+        root.active = true;
+        idle.restart();
+    }
+    changed mouse-x => { root.poke(); }
+    changed mouse-y => { root.poke(); }
+
+    idle := Timer {
+        interval: root.delay;
+        running: false;
+        triggered => {
+            // The controls are on top of this area, so while the mouse is on
+            // them its last position here is at their edge: keep them shown.
+            if (root.mouse-x >= root.keep-x - 24px && root.mouse-x <= root.keep-x + root.keep-width + 24px
+                && root.mouse-y >= root.keep-y - 24px && root.mouse-y <= root.keep-y + root.keep-height + 24px
+                && root.has-hover) {
+                return;
+            }
+            root.active = false;
+            self.running = false;
+        }
+    }
+}
+
 export component VizControls inherits Rectangle {
     in property <int> style;
     in property <bool> fullscreen;

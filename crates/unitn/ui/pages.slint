@@ -943,29 +943,22 @@ export component NowPlayingPage inherits Rectangle {
                 has-cover: root.has-cover;
                 primary: !root.covered;
             }
-            // Same controls as in full screen: left/right click change the
-            // style, double-click (or the button) toggles full screen.
-            TouchArea {
-                mouse-cursor: pointer;
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.down) {
-                        if (event.button == PointerEventButton.left) {
-                            root.step-viz(1);
-                        } else if (event.button == PointerEventButton.right) {
-                            root.step-viz(-1);
-                        }
-                    }
-                }
-                double-clicked => {
-                    root.step-viz(-2); // undo the two clicks of the double-click
-                    root.open-fullscreen();
-                }
+            // The buttons appear when the mouse moves over the card and fade
+            // out when it stops (clicks on the visualizer do nothing).
+            card-idle := IdleArea {
+                keep-x: card-controls.x;
+                keep-y: card-controls.y;
+                keep-width: card-controls.width;
+                keep-height: card-controls.height;
             }
-            VizControls {
+            card-controls := VizControls {
                 x: parent.width - self.width - 12px;
                 y: 12px;
                 style: root.viz-style;
                 fullscreen: false;
+                opacity: card-idle.active ? 1.0 : 0.0;
+                visible: self.opacity > 0.01;
+                animate opacity { duration: 250ms; }
                 step(d) => { root.step-viz(d); }
                 toggle-fullscreen => { root.open-fullscreen(); }
             }

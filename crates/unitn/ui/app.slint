@@ -1424,21 +1424,14 @@ export component AppWindow inherits Window {
                 }
                 return reject;
             }
-            TouchArea {
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.down) {
-                        if (event.button == PointerEventButton.left) {
-                            root.step-viz(1);
-                        } else if (event.button == PointerEventButton.right) {
-                            root.step-viz(-1);
-                        }
-                    }
-                }
-                double-clicked => {
-                    root.step-viz(-2); // undo the two clicks of the double-click
-                    root.viz-fullscreen = false;
-                    keys.focus();
-                }
+            // Buttons, hints and the mouse pointer show while the mouse moves
+            // and fade out when it stops; clicks do nothing.
+            full-idle := IdleArea {
+                hide-cursor: true;
+                keep-x: full-controls.x;
+                keep-y: full-controls.y;
+                keep-width: full-controls.width;
+                keep-height: full-controls.height;
             }
         }
 
@@ -1462,22 +1455,22 @@ export component AppWindow inherits Window {
                 overflow: elide;
             }
             Text {
-                text: (root.viz-style == 0 ? "Spectrum"
-                    : root.viz-style == 1 ? "Mirror"
-                    : root.viz-style == 2 ? "Wave"
-                    : root.viz-style == 3 ? "Oscilloscope"
-                    : "Radial")
-                    + "   ·   ← → or left/right click: change style   ·   double-click or Esc: exit   ·   Space: play/pause";
+                text: "← →: change style   ·   Esc: exit   ·   Space: play/pause";
                 color: Theme.fg-muted;
                 font-size: 12px;
+                opacity: full-idle.active ? 1.0 : 0.0;
+                animate opacity { duration: 250ms; }
             }
         }
 
-        VizControls {
+        full-controls := VizControls {
             x: parent.width - self.width - 20px;
             y: 20px + root.titlebar-inset;
             style: root.viz-style;
             fullscreen: true;
+            opacity: full-idle.active ? 1.0 : 0.0;
+            visible: self.opacity > 0.01;
+            animate opacity { duration: 250ms; }
             step(d) => { root.step-viz(d); }
             toggle-fullscreen => {
                 root.viz-fullscreen = false;

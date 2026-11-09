@@ -48,8 +48,8 @@ no account and no tracking.
   whole-file preloading so music from network shares doesn't stutter
 - **Winamp-style 10-band equalizer** with preamp, presets and a live response curve
 - **Visualizer** with five styles (spectrum with falling bars, mirror, wave, oscilloscope, radial),
-  tuned for both themes; left/right click or the ‹ › buttons switch styles, double-click or the
-  button goes full screen
+  tuned for both themes; the ‹ › buttons (or ← →) switch styles and a button goes full screen. The
+  buttons appear when you move the mouse and fade out when it rests
 - **Drag & drop** files, folders and M3U playlists onto the window
 - **Keyboard shortcuts** (Space, ←/→ seek, ⌘/Ctrl+←/→ track, ↑/↓ volume, ⌘/Ctrl+F search …)
 - **Dark and light themes**, or follow the system setting; adjustable window transparency and,
