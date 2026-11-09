@@ -2769,7 +2769,13 @@ impl App {
             Some(Item::Track(t)) => {
                 let (cover, has_cover) = self.cover(&t.cover);
                 ui.set_np_title(t.title.as_str().into());
-                ui.set_np_subtitle(format!("{} — {}", t.artist, t.album).into());
+                // Podcast episodes: the show is both "artist" and "album".
+                let subtitle = if t.album.is_empty() || t.album == t.artist {
+                    t.artist.clone()
+                } else {
+                    format!("{} — {}", t.artist, t.album)
+                };
+                ui.set_np_subtitle(subtitle.into());
                 ui.set_np_cover(cover);
                 ui.set_np_has_cover(has_cover);
                 ui.set_is_radio(false);
@@ -2955,7 +2961,7 @@ impl App {
             .map(|p| {
                 let info = match p.unplayed {
                     0 => String::new(),
-                    n => plural(n, "new episode", "new episodes"),
+                    n => plural(n, "unplayed episode", "unplayed episodes"),
                 };
                 self.podcast_item(&p.show, &p.cover, info, true)
             })

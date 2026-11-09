@@ -144,6 +144,13 @@ run_theme() { # theme-number name
     shot "$2-podcast-playing"
     click 120 411 3
     shot "$2-nowplaying-podcast"
+    sleep 14                 # progress is saved every 15 s
+    click 120 327 2          # back to the show: progress bar and "… left"
+    shot "$2-podcast-progress"
+    click 120 486 1          # somewhere else (the server), then play the episode again
+    click 120 327 2
+    click 600 250 10         # same episode: continues where it was
+    shot "$2-podcast-resume"
   fi
   click 120 201            # Songs
   shot "$2-songs"

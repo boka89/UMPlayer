@@ -2,11 +2,11 @@
 
 **Unitn player** (say "unitone player") is a free, open-source music player for
 **Windows, macOS and Linux**, written in Rust. Think "VLC for music", with a
-modern UI: your local music library, your **Jellyfin, Plex and Navidrome** servers and
-thousands of internet radio stations, in one fast app with no ads, no account
-and no tracking.
+modern UI: your local music library, your **Jellyfin, Plex and Navidrome** servers,
+thousands of internet radio stations and your **podcasts**, in one fast app with no ads,
+no account and no tracking.
 
-> Status: v0.5 — young but usable. Feedback and contributions welcome.
+> Status: v0.5.5 — young but usable. Feedback and contributions welcome.
 
 ![Unitn playing an album, dark theme](docs/screenshots/dark-playing.png)
 
@@ -32,12 +32,18 @@ and no tracking.
   server's albums (with covers) and play them like local music — seeking and gapless included.
   Search finds songs on your servers too, and server songs can go into playlists.
   See [Music servers](#music-servers)
+- **Podcasts**: search Apple's public podcast directory or paste any RSS link, subscribe, and
+  play episodes. Unitn remembers where you stopped in each episode and shows what's new
+- **Lyrics** on Now Playing: synced lyrics scroll along with the song and highlight the current
+  line. They come from a `.lrc` file next to the song, from the song's own tags, or online from
+  the free [LRCLIB](https://lrclib.net) (can be turned off)
 - **Internet radio** with ~50,000 stations from the open [Radio Browser](https://www.radio-browser.info),
   Popular / Favorites / Hungary tabs and your own stream URLs
 - **Playlists**: create, rename, reorder, import/export M3U, and save the queue as a playlist;
   local songs and songs from your servers can be mixed
 - **Queue** with drag-to-reorder, shuffle, repeat all / repeat one
-- **Gapless playback**, and whole-file preloading so music from network shares doesn't stutter
+- **Gapless playback** and **crossfade** (2–12 s, songs from the same album stay gapless), and
+  whole-file preloading so music from network shares doesn't stutter
 - **Winamp-style 10-band equalizer** with preamp, presets and a live response curve
 - **Visualizer** with five styles (spectrum with falling bars, mirror, wave, oscilloscope, radial),
   tuned for both themes; left/right click or the ‹ › buttons switch styles, double-click or the
@@ -161,8 +167,8 @@ On first start, your system Music folder is added automatically.
 
 ## Roadmap
 
-- Crossfade, high-quality resampler, ReplayGain, synced lyrics
-- Podcasts (RSS)
+- High-quality resampler, ReplayGain
+- Podcast downloads for offline listening
 - HLS radio streams, full-quality HE-AAC, Opus
 
 ## License
