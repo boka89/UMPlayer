@@ -6,7 +6,7 @@ modern UI: your local music library, your **Jellyfin, Plex and Navidrome** serve
 thousands of internet radio stations and your **podcasts**, in one fast app with no ads,
 no account and no tracking.
 
-> Status: v0.5.7 — young but usable. Feedback and contributions welcome.
+> Status: v0.5.8 — young but usable. Feedback and contributions welcome.
 
 ![Unitn playing an album, dark theme](docs/screenshots/dark-playing.png)
 
