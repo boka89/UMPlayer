@@ -17,6 +17,8 @@ no account and no tracking.
 | ![Radio](docs/screenshots/dark-radio-playing.png) | ![Light theme](docs/screenshots/light-nowplaying-eq-rock.png) |
 | **Fix album info** (MusicBrainz) | **Full-screen visualizer** |
 | ![Fix album info](docs/screenshots/dark-album-fix.png) | ![Visualizer](docs/screenshots/dark-viz-4.png) |
+| **Synced lyrics** | **Podcasts** |
+| ![Lyrics](docs/screenshots/dark-lyrics.png) | ![Podcasts](docs/screenshots/dark-podcast-show.png) |
 
 ## Features
 
