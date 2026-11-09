@@ -152,7 +152,6 @@ export component AppWindow inherits Window {
     in property <bool> server-connecting: false;
     callback open-server(int);
     callback refresh-server();
-    callback filter-server(string);
     callback open-server-album(int);
     callback connect-server(int, string, string, string);
     callback close-server-dialog();
@@ -638,7 +637,6 @@ export component AppWindow inherits Window {
                                 root.page = 5;
                             }
                             refresh => { root.refresh-server(); }
-                            filter(text) => { root.filter-server(text); }
                         }
                         if root.page == 5: AlbumDetailPage {
                             width: parent.width;

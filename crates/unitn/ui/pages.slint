@@ -973,7 +973,6 @@ export component ServerPage inherits Rectangle {
     in property <bool> loading;
     callback open-album(int);
     callback refresh();
-    callback filter(string);
 
     VerticalLayout {
         HorizontalLayout {
@@ -987,11 +986,6 @@ export component ServerPage inherits Rectangle {
                 color: Theme.fg-muted;
                 font-size: 13px;
                 vertical-alignment: center;
-            }
-            TextField {
-                width: 220px;
-                placeholder: "Filter albums";
-                changed text => { root.filter(self.text); }
             }
             IconButton {
                 icon: @image-url("icons/refresh.svg");

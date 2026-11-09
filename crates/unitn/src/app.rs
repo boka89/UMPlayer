@@ -86,9 +86,8 @@ struct ServerView {
     index: Option<usize>,
     /// All albums, per server (url|user), loaded once per session.
     cache: HashMap<String, Vec<ServerAlbum>>,
-    /// The albums shown (after filtering).
+    /// The albums shown.
     shown: Vec<ServerAlbum>,
-    filter: String,
     model: Option<Rc<VecModel<AlbumItem>>>,
 }
 
@@ -1749,11 +1748,7 @@ impl App {
 
     pub fn open_server(&mut self, index: usize) {
         let Some(cfg) = self.settings.servers.get(index).cloned() else { return };
-        let changed = self.server.index != Some(index);
         self.server.index = Some(index);
-        if changed {
-            self.server.filter.clear();
-        }
         if let Some(ui) = self.ui() {
             ui.set_server_name(cfg.name.as_str().into());
             ui.set_current_server(index as i32);
@@ -1790,24 +1785,12 @@ impl App {
         });
     }
 
-    pub fn filter_server(&mut self, text: String) {
-        if text != self.server.filter {
-            self.server.filter = text;
-            self.show_server_albums();
-        }
-    }
-
-    /// Shows the (filtered) albums of the open server and fetches missing covers.
+    /// Shows the albums of the open server and fetches missing covers.
     fn show_server_albums(&mut self) {
         let Some(cfg) = self.server.index.and_then(|i| self.settings.servers.get(i)).cloned() else { return };
         let key = server_key(&cfg);
         let all = self.server.cache.get(&key).cloned().unwrap_or_default();
-        let needle = self.server.filter.trim().to_lowercase();
-        self.server.shown = all
-            .iter()
-            .filter(|a| needle.is_empty() || a.title.to_lowercase().contains(&needle) || a.artist.to_lowercase().contains(&needle))
-            .cloned()
-            .collect();
+        self.server.shown = all.clone();
         let covers_dir = self.paths.covers.join("servers");
         let mut missing = Vec::new();
         let items: Vec<AlbumItem> = self
@@ -1834,11 +1817,7 @@ impl App {
             .collect();
         let model = Rc::new(VecModel::from(items));
         self.server.model = Some(model.clone());
-        let status = if self.server.filter.trim().is_empty() {
-            plural(all.len(), "album", "albums")
-        } else {
-            format!("{} of {}", self.server.shown.len(), plural(all.len(), "album", "albums"))
-        };
+        let status = plural(all.len(), "album", "albums");
         if let Some(ui) = self.ui() {
             ui.set_server_albums(ModelRc::from(model));
             ui.set_server_loading(false);
@@ -3361,7 +3340,6 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_track_menu_action, |a, action, pl| a.track_menu_action(action, pl));
     on!(on_open_server, |a, i| a.open_server(i.max(0) as usize));
     on!(on_refresh_server, |a| a.refresh_server());
-    on!(on_filter_server, |a, text| a.filter_server(text.to_string()));
     on!(on_open_server_album, |a, i| a.open_server_album(i.max(0) as usize));
     on!(on_remove_server, |a, i| a.remove_server(i.max(0) as usize));
     on!(on_connect_server, |a, kind, url, user, secret| a.connect_server(kind, url.to_string(), user.to_string(), secret.to_string()));
