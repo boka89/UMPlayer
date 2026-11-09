@@ -1084,28 +1084,31 @@ export component IdleArea inherits TouchArea {
 
     mouse-cursor: root.hide-cursor && !root.active ? MouseCursor.none : MouseCursor.default;
 
+    // Counts quarter seconds since the mouse last moved.
+    property <int> still-ticks: 0;
+
     function poke() {
+        root.still-ticks = 0;
         root.active = true;
-        // (Re)start the countdown from now.
-        idle.running = true;
-        idle.restart();
     }
     changed mouse-x => { root.poke(); }
     changed mouse-y => { root.poke(); }
 
-    idle := Timer {
-        interval: root.delay;
-        running: false;
+    Timer {
+        interval: 250ms;
+        running: root.active;
         triggered => {
+            root.still-ticks += 1;
+            if (root.still-ticks * 250ms < root.delay) {
+                return;
+            }
             // The controls are on top of this area, so while the mouse is on
             // them its last position here is at their edge: keep them shown.
             if (root.mouse-x >= root.keep-x - 24px && root.mouse-x <= root.keep-x + root.keep-width + 24px
-                && root.mouse-y >= root.keep-y - 24px && root.mouse-y <= root.keep-y + root.keep-height + 24px
-                && root.has-hover) {
+                && root.mouse-y >= root.keep-y - 24px && root.mouse-y <= root.keep-y + root.keep-height + 24px) {
                 return;
             }
             root.active = false;
-            self.running = false;
         }
     }
 }
