@@ -2,15 +2,15 @@
 
 **Unitn player** (say "unitone player") is a free, open-source music player for
 **Windows, macOS and Linux**, written in Rust. Think "VLC for music", with a
-modern UI: your local music library, your **Jellyfin and Plex** servers and
+modern UI: your local music library, your **Jellyfin, Plex and Navidrome** servers and
 thousands of internet radio stations, in one fast app with no ads, no account
 and no tracking.
 
-> Status: v0.4 — young but usable. Feedback and contributions welcome.
+> Status: v0.5 — young but usable. Feedback and contributions welcome.
 
 ![Unitn playing an album, dark theme](docs/screenshots/dark-playing.png)
 
-| Now Playing with the Winamp-style equalizer | Your Jellyfin / Plex server |
+| Now Playing with the Winamp-style equalizer | Your music server |
 |---|---|
 | ![Equalizer](docs/screenshots/dark-nowplaying-eq-rock.png) | ![Server albums](docs/screenshots/dark-server.png) |
 | **Internet radio** | **Light theme** |
@@ -28,11 +28,14 @@ and no tracking.
   and artist photos (from Wikimedia Commons) appear behind Now Playing
 - **Fix album info**: search MusicBrainz by hand, pick the right album and cover (or use your
   own image) and correct artist/album names. Your music files are never modified
-- **Jellyfin and Plex servers**: browse your server's albums (with covers) and play them like
-  local music — seeking and gapless included. See [Music servers](#music-servers)
+- **Music servers**: Jellyfin, Plex, Navidrome and other OpenSubsonic servers. Browse your
+  server's albums (with covers) and play them like local music — seeking and gapless included.
+  Search finds songs on your servers too, and server songs can go into playlists.
+  See [Music servers](#music-servers)
 - **Internet radio** with ~50,000 stations from the open [Radio Browser](https://www.radio-browser.info),
   Popular / Favorites / Hungary tabs and your own stream URLs
-- **Playlists**: create, rename, reorder, import/export M3U, and save the queue as a playlist
+- **Playlists**: create, rename, reorder, import/export M3U, and save the queue as a playlist;
+  local songs and songs from your servers can be mixed
 - **Queue** with drag-to-reorder, shuffle, repeat all / repeat one
 - **Gapless playback**, and whole-file preloading so music from network shares doesn't stutter
 - **Winamp-style 10-band equalizer** with preamp, presets and a live response curve
@@ -59,16 +62,19 @@ right-click → Open (or System Settings → Privacy & Security → "Open Anyway
 
 ## Music servers
 
-Unitn plays the music on your own **Jellyfin** or **Plex** server. Open
+Unitn plays the music on your own **Jellyfin**, **Plex** or **Navidrome** server (or any other
+OpenSubsonic / Subsonic server, such as Gonic or Airsonic). Open
 **Settings → Music servers → Add server**:
 
-| | Jellyfin | Plex |
-|---|---|---|
-| Address | `192.168.1.10` (port 8096 is assumed) or the full URL, e.g. `https://music.example.com` | optional: leave it empty and Unitn finds your server, or type `192.168.1.10` (port 32400 is assumed) or the full URL |
-| Sign in | your Jellyfin user name and password | click **Sign in with Plex**: plex.tv opens in your browser, you sign in there (two-factor sign-in works), and Unitn picks up the access token. If no browser opens, go to [plex.tv/link](https://plex.tv/link) and enter the code Unitn shows |
+| | Jellyfin | Plex | Navidrome / Subsonic |
+|---|---|---|---|
+| Address | `192.168.1.10` (port 8096 is assumed) or the full URL, e.g. `https://music.example.com` | optional: leave it empty and Unitn finds your server, or type `192.168.1.10` (port 32400 is assumed) or the full URL | `192.168.1.10` (port 4533 is assumed) or the full URL |
+| Sign in | your Jellyfin user name and password | click **Sign in with Plex**: plex.tv opens in your browser, you sign in there (two-factor sign-in works), and Unitn picks up the access token. If no browser opens, go to [plex.tv/link](https://plex.tv/link) and enter the code Unitn shows | your user name and password |
 
 The server then appears under **SERVERS** in the sidebar. Its albums open in the normal album
-view; play, shuffle, queue and "play next" work as for local music.
+view; play, shuffle, queue and "play next" work as for local music. The search box at the top
+also finds songs on all your servers (they are listed below your own songs), and any server
+song can be added to a playlist, next to your local music.
 
 Good to know:
 
@@ -76,7 +82,8 @@ Good to know:
   background, so seeking is instant and albums play gaplessly. Formats Unitn can't decode
   (e.g. Opus, WMA) won't play yet.
 - Unitn never sees your Plex password, and only uses your Jellyfin password to sign in. It stores
-  the **access token** the server gives it (in `settings.json`, see below). Remove the server in
+  the **access token** the server gives it (in `settings.json`, see below); for Subsonic servers a
+  salted token (`md5(password + salt)`) instead of the password. Remove the server in
   Settings to forget it; you can also revoke the device under Jellyfin's Dashboard → Devices or
   Plex's Settings → Authorized Devices.
 - HTTPS works with properly signed certificates; for self-signed certificates use the server's
@@ -154,7 +161,6 @@ On first start, your system Music folder is added automatically.
 
 ## Roadmap
 
-- Server songs in playlists, server search, OpenSubsonic / Navidrome servers
 - Crossfade, high-quality resampler, ReplayGain, synced lyrics
 - Podcasts (RSS)
 - HLS radio streams, full-quality HE-AAC, Opus
