@@ -1057,6 +1057,8 @@ export component SettingsPage inherits Rectangle {
     callback download-art-changed(bool);
     in property <int> crossfade;
     callback crossfade-changed(int);
+    in property <bool> gapless-albums;
+    callback gapless-albums-changed(bool);
     in property <bool> lyrics-online;
     callback lyrics-online-changed(bool);
     callback theme-selected(int);
@@ -1200,6 +1202,19 @@ export component SettingsPage inherits Rectangle {
                     spacing: 8px;
                     Text {
                         width: 180px;
+                        text: "Within an album";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "Crossfade"; selected: !root.gapless-albums; clicked => { root.gapless-albums-changed(false); } }
+                    Chip { text: "Keep gapless"; selected: root.gapless-albums; clicked => { root.gapless-albums-changed(true); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
                         text: "Find lyrics online";
                         color: Theme.fg-muted;
                         font-size: 13px;
@@ -1210,7 +1225,8 @@ export component SettingsPage inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                 }
                 Text {
-                    text: "Crossfade blends the end of a song into the next one; songs from the same album still play gaplessly. "
+                    text: "Crossfade blends the end of a song into the next one when one song follows another on its own (not when you skip). "
+                        + "\"Keep gapless\" plays songs of the same album without a fade, for live albums and mixes. "
                         + "Lyrics come from a .lrc file next to the song, from the song's tags, or online from LRCLIB (lrclib.net).";
                     color: Theme.fg-muted;
                     font-size: 12px;

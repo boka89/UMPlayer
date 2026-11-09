@@ -69,7 +69,7 @@ enum Bg {
     /// A show's feed was reloaded.
     PodcastRefreshed { feed: String, result: Result<(), String> },
     /// "Sign in with Plex": waiting for the user to approve in the browser.
-    PlexWaiting { login: u64, code: String, opened: bool },
+    PlexWaiting { login: u64, code: Option<String>, opened: bool },
     /// The album list of a server arrived.
     ServerAlbums { request: u64, key: String, result: Result<Vec<ServerAlbum>, String> },
     /// A server album cover was downloaded.
@@ -470,6 +470,7 @@ impl App {
             ui.set_viz_style(self.settings.viz_style.clamp(0, 4));
             ui.set_download_art(self.settings.download_art);
             ui.set_crossfade(self.settings.crossfade);
+            ui.set_gapless_albums(self.settings.gapless_albums);
             ui.set_lyrics_online(self.settings.lyrics_online);
             ui.set_lyrics_open(self.settings.lyrics_open);
             ui.set_glass_available(crate::glass::AVAILABLE);
@@ -1616,7 +1617,7 @@ impl App {
             let result = (|| -> anyhow::Result<Option<ServerConfig>> {
                 let pin = servers::plex_pin_start()?;
                 let opened = open_in_browser(&pin.auth_url);
-                let _ = tx.send(Bg::PlexWaiting { login, code: pin.code.clone(), opened });
+                let _ = tx.send(Bg::PlexWaiting { login, code: pin.link_code.clone(), opened });
                 let deadline = std::time::Instant::now() + Duration::from_secs(15 * 60);
                 let token = loop {
                     thread::sleep(Duration::from_secs(2));
@@ -1648,16 +1649,20 @@ impl App {
         });
     }
 
-    fn on_plex_waiting(&mut self, login: u64, code: String, opened: bool) {
+    fn on_plex_waiting(&mut self, login: u64, code: Option<String>, opened: bool) {
         if login != self.plex_login.load(Ordering::SeqCst) {
             return;
         }
+        let text = match (opened, code) {
+            (true, Some(code)) => format!(
+                "Finish signing in to Plex in your browser. If no page opened, go to plex.tv/link and enter the code {code}."
+            ),
+            (true, None) => "Finish signing in to Plex in your browser.".to_string(),
+            (false, Some(code)) => format!("Go to plex.tv/link in your browser and enter the code {code}."),
+            (false, None) => "Couldn't open your browser. Please try again.".to_string(),
+        };
         if let Some(ui) = self.ui() {
-            ui.set_server_dialog_status(if opened {
-                format!("Finish signing in to Plex in your browser. If no page opened, go to plex.tv/link and enter the code {code}.").into()
-            } else {
-                format!("Go to plex.tv/link in your browser and enter the code {code}.").into()
-            });
+            ui.set_server_dialog_status(text.into());
         }
     }
 
@@ -2536,14 +2541,17 @@ impl App {
             _ => None,
         });
         self.planned_next = if source.is_some() { next } else { None };
-        // Songs of the same album flow into each other: keep those gapless.
-        let same_album = match (self.current.and_then(|c| self.queue.get(c)), next.and_then(|i| self.queue.get(i))) {
+        // Optionally keep songs of the same album gapless (live albums, DJ mixes).
+        let same_album = self.settings.gapless_albums && match (self.current.and_then(|c| self.queue.get(c)), next.and_then(|i| self.queue.get(i))) {
             (Some(Item::Track(a)), Some(Item::Track(b))) => {
                 !a.album.is_empty() && a.album == b.album && a.grouping_artist() == b.grouping_artist()
             }
             _ => false,
         };
         let fade = if same_album { 0.0 } else { self.settings.crossfade.max(0) as f64 };
+        if self.settings.crossfade > 0 && source.is_some() {
+            log(format!("crossfade into the next song: {fade} s{}", if same_album { " (same album: gapless)" } else { "" }));
+        }
         self.player.set_crossfade(fade);
         self.player.set_next(source);
     }
@@ -2823,6 +2831,15 @@ impl App {
         self.save_settings();
         if let Some(ui) = self.ui() {
             ui.set_crossfade(self.settings.crossfade);
+        }
+        self.update_next();
+    }
+
+    pub fn set_gapless_albums(&mut self, on: bool) {
+        self.settings.gapless_albums = on;
+        self.save_settings();
+        if let Some(ui) = self.ui() {
+            ui.set_gapless_albums(on);
         }
         self.update_next();
     }
@@ -3338,6 +3355,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_connect_server, |a, kind, url, user, secret| a.connect_server(kind, url.to_string(), user.to_string(), secret.to_string()));
     on!(on_close_server_dialog, |a| a.close_server_dialog());
     on!(on_crossfade_changed, |a, secs| a.set_crossfade(secs));
+    on!(on_gapless_albums_changed, |a, on| a.set_gapless_albums(on));
     on!(on_lyrics_online_changed, |a, on| a.set_lyrics_online(on));
     on!(on_lyrics_open_changed, |a, open| a.set_lyrics_open(open));
     on!(on_podcast_subscribe, |a, i| a.podcast_subscribe(i.max(0) as usize));

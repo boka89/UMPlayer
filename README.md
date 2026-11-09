@@ -44,7 +44,7 @@ no account and no tracking.
 - **Playlists**: create, rename, reorder, import/export M3U, and save the queue as a playlist;
   local songs and songs from your servers can be mixed
 - **Queue** with drag-to-reorder, shuffle, repeat all / repeat one
-- **Gapless playback** and **crossfade** (2–12 s, songs from the same album stay gapless), and
+- **Gapless playback** and **crossfade** (2–12 s; optionally keep songs of the same album gapless), and
   whole-file preloading so music from network shares doesn't stutter
 - **Winamp-style 10-band equalizer** with preamp, presets and a live response curve
 - **Visualizer** with five styles (spectrum with falling bars, mirror, wave, oscilloscope, radial),

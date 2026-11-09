@@ -178,6 +178,17 @@ ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=550:duration=14" -ac 2 /tm
 cargo run --release -q -p unitn-core --example crossfade_check -- /tmp/cf-a.wav /tmp/cf-b.wav 4 \
   | tee "$OUT/crossfade.txt" || true
 
+# "Sign in with Plex": create a real sign-in request and capture plex.tv's page for it.
+if cargo run --release -q -p unitn-core --example plex_pin_check -- /tmp/plex-auth-url.txt | tee "$OUT/plex-pin.txt"; then
+  for chrome in google-chrome google-chrome-stable chromium chromium-browser; do
+    if command -v "$chrome" >/dev/null; then
+      timeout 60 "$chrome" --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,900 \
+        --virtual-time-budget=15000 --screenshot="$OUT/plex-signin-page.png" "$(cat /tmp/plex-auth-url.txt)" 2>/dev/null || true
+      break
+    fi
+  done
+fi
+
 export DISPLAY=:99
 Xvfb :99 -screen 0 1280x820x24 &
 XVFB=$!

@@ -193,9 +193,14 @@ pub fn owns_track(cfg: &ServerConfig, key: &std::path::Path) -> bool {
 /// the token with [`plex_pin_token`].
 #[derive(Debug, Clone)]
 pub struct PlexPin {
+    /// The "strong" PIN behind the browser page (app.plex.tv/auth only
+    /// accepts strong PINs).
     pub id: u64,
-    /// Short code, also usable on plex.tv/link.
     pub code: String,
+    /// A second, short PIN for typing in at plex.tv/link (if the browser
+    /// can't be opened). Whichever is approved first wins.
+    pub link_id: Option<u64>,
+    pub link_code: Option<String>,
     /// Page to open in the browser.
     pub auth_url: String,
     pub device_id: String,
@@ -453,7 +458,8 @@ mod jellyfin {
 mod plex {
     use super::*;
 
-    const PRODUCT: &str = "Unitn";
+    /// Shown by Plex on the sign-in page and under Authorized Devices.
+    pub(super) const PRODUCT: &str = "Unitn player";
 
     fn get(cfg: &ServerConfig, path: &str, query: &[(&str, &str)]) -> Result<Value> {
         let mut req = agent()
@@ -505,9 +511,9 @@ mod plex {
             .set("X-Plex-Version", env!("CARGO_PKG_VERSION"))
     }
 
-    pub fn pin_start(device_id: String) -> Result<PlexPin> {
-        let resp: Value = plex_tv("POST", "/api/v2/pins", &device_id)
-            .send_form(&[("strong", "false")])
+    fn create_pin(device_id: &str, strong: bool) -> Result<(u64, String)> {
+        let resp: Value = plex_tv("POST", "/api/v2/pins", device_id)
+            .send_form(&[("strong", if strong { "true" } else { "false" })])
             .map_err(|e| explain(e, "Plex sign-in"))?
             .into_json()?;
         let id = resp["id"].as_u64().ok_or_else(|| anyhow!("Plex sign-in: unexpected answer from plex.tv"))?;
@@ -515,17 +521,37 @@ mod plex {
         if code.is_empty() {
             bail!("Plex sign-in: unexpected answer from plex.tv");
         }
-        let auth_url = format!(
-            "https://app.plex.tv/auth#?clientID={}&code={}&context%5Bdevice%5D%5Bproduct%5D={}",
-            percent_encode(&device_id),
-            percent_encode(&code),
-            percent_encode("Unitn player")
-        );
-        Ok(PlexPin { id, code, auth_url, device_id })
+        Ok((id, code))
     }
 
-    pub fn pin_token(pin: &PlexPin) -> Result<Option<String>> {
-        let resp: Value = plex_tv("GET", &format!("/api/v2/pins/{}", pin.id), &pin.device_id)
+    pub fn pin_start(device_id: String) -> Result<PlexPin> {
+        let (id, code) = create_pin(&device_id, true)?;
+        let link = create_pin(&device_id, false)
+            .map_err(|e| crate::log::log(format!("servers: Plex link code failed: {e:#}")))
+            .ok();
+        Ok(PlexPin {
+            auth_url: auth_url(&device_id, &code),
+            id,
+            code,
+            link_id: link.as_ref().map(|l| l.0),
+            link_code: link.map(|l| l.1),
+            device_id,
+        })
+    }
+
+    /// The Auth App page for a strong PIN, as documented by Plex.
+    pub(super) fn auth_url(device_id: &str, code: &str) -> String {
+        format!(
+            "https://app.plex.tv/auth#?clientID={}&code={}&context%5Bdevice%5D%5Bproduct%5D={}",
+            percent_encode(device_id),
+            percent_encode(code),
+            percent_encode(PRODUCT)
+        )
+    }
+
+    fn check_pin(id: u64, code: &str, device_id: &str) -> Result<Option<String>> {
+        let resp: Value = plex_tv("GET", &format!("/api/v2/pins/{id}"), device_id)
+            .query("code", code)
             .call()
             .map_err(|e| match e {
                 ureq::Error::Status(404, _) => anyhow!("The Plex sign-in expired. Please try again."),
@@ -534,6 +560,19 @@ mod plex {
             .into_json()?;
         let token = str_of(&resp["authToken"]);
         Ok((!token.is_empty()).then_some(token))
+    }
+
+    pub fn pin_token(pin: &PlexPin) -> Result<Option<String>> {
+        if let Some(token) = check_pin(pin.id, &pin.code, &pin.device_id)? {
+            return Ok(Some(token));
+        }
+        if let (Some(id), Some(code)) = (pin.link_id, pin.link_code.as_deref()) {
+            // The short code is only a fallback: don't fail the sign-in over it.
+            if let Ok(Some(token)) = check_pin(id, code, &pin.device_id) {
+                return Ok(Some(token));
+            }
+        }
+        Ok(None)
     }
 
     /// A server from plex.tv's resource list.
@@ -1001,6 +1040,15 @@ mod tests {
         assert_eq!(plex::host_port("https://10-0-0-2.abc.plex.direct:32400/"), "10-0-0-2.abc.plex.direct:32400");
         assert_eq!(plex::host_port("https://plex.example.com"), "plex.example.com:443");
         assert_eq!(plex::host_port("http://NAS/plex"), "nas:80");
+    }
+
+    #[test]
+    fn plex_auth_url_matches_the_docs() {
+        let url = plex::auth_url("unitn-abc", "8lzjqnq8lye02n52jq3fqxf8e");
+        assert_eq!(
+            url,
+            "https://app.plex.tv/auth#?clientID=unitn-abc&code=8lzjqnq8lye02n52jq3fqxf8e&context%5Bdevice%5D%5Bproduct%5D=Unitn%20player"
+        );
     }
 
     #[test]

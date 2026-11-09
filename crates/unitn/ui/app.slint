@@ -228,6 +228,8 @@ export component AppWindow inherits Window {
     // Playback settings
     in property <int> crossfade: 0;
     callback crossfade-changed(int);
+    in property <bool> gapless-albums: false;
+    callback gapless-albums-changed(bool);
     in property <bool> lyrics-online: true;
     callback lyrics-online-changed(bool);
     callback radio-genre(string);
@@ -797,6 +799,8 @@ export component AppWindow inherits Window {
                             glass-keep => { root.glass-keep(); }
                             crossfade: root.crossfade;
                             crossfade-changed(secs) => { root.crossfade-changed(secs); }
+                            gapless-albums: root.gapless-albums;
+                            gapless-albums-changed(on) => { root.gapless-albums-changed(on); }
                             lyrics-online: root.lyrics-online;
                             lyrics-online-changed(on) => { root.lyrics-online-changed(on); }
                         density-changed(c) => {
