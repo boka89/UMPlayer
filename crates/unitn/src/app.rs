@@ -53,6 +53,8 @@ enum Bg {
     FixSaved(Result<(String, String, bool), String>),
     /// Signing in to a new server finished.
     ServerConnected(Result<ServerConfig, String>),
+    /// "Sign in with Plex": waiting for the user to approve in the browser.
+    PlexWaiting { login: u64, code: String, opened: bool },
     /// The album list of a server arrived.
     ServerAlbums { request: u64, key: String, result: Result<Vec<ServerAlbum>, String> },
     /// A server album cover was downloaded.
@@ -253,6 +255,8 @@ pub struct App {
     album_from_server: bool,
     server: ServerView,
     server_request: Arc<AtomicU64>,
+    /// Current "Sign in with Plex" attempt; bumping it cancels the old one.
+    plex_login: Arc<AtomicU64>,
     fix: FixState,
     fix_request: Arc<AtomicU64>,
     artists: Vec<Artist>,
@@ -352,6 +356,7 @@ impl App {
             album_from_server: false,
             server: ServerView::default(),
             server_request: Arc::new(AtomicU64::new(0)),
+            plex_login: Arc::new(AtomicU64::new(0)),
             fix: FixState::default(),
             fix_request: Arc::new(AtomicU64::new(0)),
             artists: Vec::new(),
@@ -764,6 +769,7 @@ impl App {
             }
             Bg::FixResults { request, result } => self.on_fix_results(request, result),
             Bg::ServerConnected(result) => self.on_server_connected(result),
+            Bg::PlexWaiting { login, code, opened } => self.on_plex_waiting(login, code, opened),
             Bg::ServerAlbums { request, key, result } => {
                 if request != self.server_request.load(Ordering::Relaxed) {
                     return;
@@ -1442,6 +1448,10 @@ impl App {
     }
 
     pub fn connect_server(&mut self, kind: i32, url: String, user: String, secret: String) {
+        if kind == 1 {
+            self.sign_in_with_plex(url);
+            return;
+        }
         if url.trim().is_empty() {
             if let Some(ui) = self.ui() {
                 ui.set_server_dialog_status("Enter the server's address.".into());
@@ -1461,6 +1471,75 @@ impl App {
             });
             let _ = tx.send(Bg::ServerConnected(result));
         });
+    }
+
+    /// Plex: sign in on plex.tv in the browser (works with two-factor
+    /// sign-in), then connect with the token. The address is optional.
+    fn sign_in_with_plex(&mut self, url: String) {
+        let login = self.plex_login.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(ui) = self.ui() {
+            ui.set_server_connecting(true);
+            ui.set_server_dialog_status("Opening the Plex sign-in page…".into());
+        }
+        let (tx, current) = (self.bg_tx.clone(), self.plex_login.clone());
+        thread::spawn(move || {
+            let alive = || current.load(Ordering::SeqCst) == login;
+            let result = (|| -> anyhow::Result<Option<ServerConfig>> {
+                let pin = servers::plex_pin_start()?;
+                let opened = open_in_browser(&pin.auth_url);
+                let _ = tx.send(Bg::PlexWaiting { login, code: pin.code.clone(), opened });
+                let deadline = std::time::Instant::now() + Duration::from_secs(15 * 60);
+                let token = loop {
+                    thread::sleep(Duration::from_secs(2));
+                    if !alive() {
+                        return Ok(None);
+                    }
+                    if std::time::Instant::now() > deadline {
+                        anyhow::bail!("The Plex sign-in timed out. Please try again.");
+                    }
+                    if let Some(token) = servers::plex_pin_token(&pin)? {
+                        break token;
+                    }
+                };
+                log("servers: Plex sign-in approved, connecting");
+                Ok(Some(servers::plex_connect_account(&url, &token, pin.device_id)?))
+            })();
+            if !alive() {
+                return;
+            }
+            let result = match result {
+                Ok(Some(cfg)) => Ok(cfg),
+                Ok(None) => return,
+                Err(e) => {
+                    log(format!("servers: Plex sign-in failed: {e:#}"));
+                    Err(format!("{e:#}"))
+                }
+            };
+            let _ = tx.send(Bg::ServerConnected(result));
+        });
+    }
+
+    fn on_plex_waiting(&mut self, login: u64, code: String, opened: bool) {
+        if login != self.plex_login.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(ui) = self.ui() {
+            ui.set_server_dialog_status(if opened {
+                format!("Finish signing in to Plex in your browser. If no page opened, go to plex.tv/link and enter the code {code}.").into()
+            } else {
+                format!("Go to plex.tv/link in your browser and enter the code {code}.").into()
+            });
+        }
+    }
+
+    /// The "Add server" dialog was closed: stop waiting for a Plex sign-in.
+    pub fn close_server_dialog(&mut self) {
+        self.plex_login.fetch_add(1, Ordering::SeqCst);
+        if let Some(ui) = self.ui() {
+            ui.set_server_dialog(false);
+            ui.set_server_connecting(false);
+            ui.set_server_dialog_status(SharedString::new());
+        }
     }
 
     fn on_server_connected(&mut self, result: Result<ServerConfig, String>) {
@@ -2661,6 +2740,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_open_server_album, |a, i| a.open_server_album(i.max(0) as usize));
     on!(on_remove_server, |a, i| a.remove_server(i.max(0) as usize));
     on!(on_connect_server, |a, kind, url, user, secret| a.connect_server(kind, url.to_string(), user.to_string(), secret.to_string()));
+    on!(on_close_server_dialog, |a| a.close_server_dialog());
     on!(on_fix_search, |a, artist, album| a.fix_search(artist.to_string(), album.to_string()));
     on!(on_fix_select, |a, i| a.fix_select(i.max(0) as usize));
     on!(on_fix_save, |a, artist, album| a.fix_save(artist.to_string(), album.to_string()));
@@ -2739,5 +2819,31 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
                 with(&app, |a| a.radio_search(text.as_str()));
             });
         });
+    }
+}
+
+/// Opens a web page in the default browser. Returns false if that failed.
+fn open_in_browser(url: &str) -> bool {
+    use std::process::{Command, Stdio};
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    match cmd.spawn() {
+        Ok(_) => true,
+        Err(e) => {
+            log(format!("could not open the browser: {e}"));
+            false
+        }
     }
 }

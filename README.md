@@ -64,8 +64,8 @@ Unitn plays the music on your own **Jellyfin** or **Plex** server. Open
 
 | | Jellyfin | Plex |
 |---|---|---|
-| Address | `192.168.1.10` (port 8096 is assumed) or the full URL, e.g. `https://music.example.com` | `192.168.1.10` (port 32400 is assumed) or the full URL |
-| Sign in | your Jellyfin user name and password | your Plex account (e-mail or user name) and password — with two-factor sign-in, type the 6-digit code right after the password. Or leave the name empty and paste an [X-Plex-Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) as the password |
+| Address | `192.168.1.10` (port 8096 is assumed) or the full URL, e.g. `https://music.example.com` | optional: leave it empty and Unitn finds your server, or type `192.168.1.10` (port 32400 is assumed) or the full URL |
+| Sign in | your Jellyfin user name and password | click **Sign in with Plex**: plex.tv opens in your browser, you sign in there (two-factor sign-in works), and Unitn picks up the access token. If no browser opens, go to [plex.tv/link](https://plex.tv/link) and enter the code Unitn shows |
 
 The server then appears under **SERVERS** in the sidebar. Its albums open in the normal album
 view; play, shuffle, queue and "play next" work as for local music.
@@ -75,9 +75,10 @@ Good to know:
 - Songs are streamed as the **original files** (no transcoding) and loaded into memory in the
   background, so seeking is instant and albums play gaplessly. Formats Unitn can't decode
   (e.g. Opus, WMA) won't play yet.
-- Your password is only used to sign in. Unitn stores the **access token** the server gives
-  it (in `settings.json`, see below), never the password. Remove the server in Settings to
-  forget it; on Jellyfin you can also revoke the device under Dashboard → Devices.
+- Unitn never sees your Plex password, and only uses your Jellyfin password to sign in. It stores
+  the **access token** the server gives it (in `settings.json`, see below). Remove the server in
+  Settings to forget it; you can also revoke the device under Jellyfin's Dashboard → Devices or
+  Plex's Settings → Authorized Devices.
 - HTTPS works with properly signed certificates; for self-signed certificates use the server's
   `http://` LAN address.
 - Server songs can't be added to playlists yet.

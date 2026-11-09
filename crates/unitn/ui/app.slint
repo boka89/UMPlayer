@@ -154,6 +154,9 @@ export component AppWindow inherits Window {
     callback filter-server(string);
     callback open-server-album(int);
     callback connect-server(int, string, string, string);
+    callback close-server-dialog();
+    property <string> server-user-text;
+    property <string> server-secret-text;
     callback remove-server(int);
     // "Fix album info" dialog
     in-out property <bool> fix-visible: false;
@@ -1040,7 +1043,7 @@ export component AppWindow inherits Window {
             init => { self.focus(); }
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
-                    root.server-dialog = false;
+                    root.close-server-dialog();
                     return accept;
                 }
                 reject
@@ -1072,21 +1075,27 @@ export component AppWindow inherits Window {
                     Chip { text: "Plex"; selected: root.server-kind == 1; clicked => { root.server-kind = 1; } }
                 }
                 server-url := TextField {
-                    placeholder: root.server-kind == 0 ? "Address, e.g. 192.168.1.10 or http://nas:8096" : "Address, e.g. 192.168.1.10 or http://nas:32400";
+                    placeholder: root.server-kind == 0 ? "Address, e.g. 192.168.1.10 or http://nas:8096" : "Server address (optional, found automatically)";
+                    accepted => { root.connect-server(root.server-kind, server-url.text, root.server-user-text, root.server-secret-text); }
                 }
-                server-user := TextField {
-                    placeholder: root.server-kind == 0 ? "User name" : "Plex account e-mail or user name (optional)";
-                }
-                server-secret := TextField {
-                    placeholder: root.server-kind == 0 ? "Password" : "Password, or a Plex token if you left the name empty";
-                    input-type: InputType.password;
-                    accepted => { root.connect-server(root.server-kind, server-url.text, server-user.text, server-secret.text); }
+                if root.server-kind == 0: VerticalLayout {
+                    spacing: 12px;
+                    TextField {
+                        placeholder: "User name";
+                        text <=> root.server-user-text;
+                    }
+                    TextField {
+                        placeholder: "Password";
+                        input-type: InputType.password;
+                        text <=> root.server-secret-text;
+                        accepted => { root.connect-server(root.server-kind, server-url.text, root.server-user-text, root.server-secret-text); }
+                    }
                 }
                 Text {
                     text: root.server-dialog-status != "" ? root.server-dialog-status
                         : root.server-kind == 0
                             ? "Your password is only used to sign in; Unitn keeps the access token the server gives it."
-                            : "Signing in with your Plex account gets an access token from plex.tv. With two-factor sign-in, type the 6-digit code right after your password.";
+                            : "You sign in on plex.tv in your browser, so two-factor sign-in works. Leave the address empty to find your server automatically.";
                     color: root.server-dialog-status != "" ? Theme.fg : Theme.fg-muted;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -1097,13 +1106,15 @@ export component AppWindow inherits Window {
                     PillButton {
                         text: "Cancel";
                         has-icon: false;
-                        clicked => { root.server-dialog = false; }
+                        clicked => { root.close-server-dialog(); }
                     }
                     PillButton {
-                        text: root.server-connecting ? "Connecting…" : "Connect";
+                        text: root.server-kind == 1
+                            ? (root.server-connecting ? "Waiting for Plex…" : "Sign in with Plex")
+                            : (root.server-connecting ? "Connecting…" : "Connect");
                         has-icon: false;
                         primary: true;
-                        clicked => { root.connect-server(root.server-kind, server-url.text, server-user.text, server-secret.text); }
+                        clicked => { root.connect-server(root.server-kind, server-url.text, root.server-user-text, root.server-secret-text); }
                     }
                 }
             }

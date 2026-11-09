@@ -137,6 +137,38 @@ pub fn connect(kind: ServerKind, url: &str, user: &str, secret: &str) -> Result<
     }
 }
 
+/// A pending "Sign in with Plex" request: the user approves it on plex.tv
+/// in the browser (where two-factor sign-in works), then the app picks up
+/// the token with [`plex_pin_token`].
+#[derive(Debug, Clone)]
+pub struct PlexPin {
+    pub id: u64,
+    /// Short code, also usable on plex.tv/link.
+    pub code: String,
+    /// Page to open in the browser.
+    pub auth_url: String,
+    pub device_id: String,
+}
+
+/// Starts a browser sign-in with Plex.
+pub fn plex_pin_start() -> Result<PlexPin> {
+    plex::pin_start(new_device_id())
+}
+
+/// The account token once the user approved the sign-in in the browser,
+/// `None` while still waiting.
+pub fn plex_pin_token(pin: &PlexPin) -> Result<Option<String>> {
+    plex::pin_token(pin)
+}
+
+/// Connects to a Plex server with the account token from the browser
+/// sign-in. With an empty `url` the user's servers are looked up on plex.tv
+/// and the first reachable one with a music library is used.
+pub fn plex_connect_account(url: &str, account_token: &str, device_id: String) -> Result<ServerConfig> {
+    let url = if url.trim().is_empty() { String::new() } else { normalize_url(url, ServerKind::Plex) };
+    plex::connect_account(&url, account_token, device_id)
+}
+
 /// All albums on the server, sorted by artist and title.
 pub fn albums(cfg: &ServerConfig) -> Result<Vec<ServerAlbum>> {
     let mut list = match cfg.kind {
@@ -385,6 +417,163 @@ mod plex {
             }
             token
         };
+        finish(url, user, token, device_id)
+    }
+
+    fn plex_tv(method: &str, path: &str, device_id: &str) -> ureq::Request {
+        agent()
+            .request(method, &format!("https://plex.tv{path}"))
+            .set("Accept", "application/json")
+            .set("X-Plex-Client-Identifier", device_id)
+            .set("X-Plex-Product", PRODUCT)
+            .set("X-Plex-Version", env!("CARGO_PKG_VERSION"))
+    }
+
+    pub fn pin_start(device_id: String) -> Result<PlexPin> {
+        let resp: Value = plex_tv("POST", "/api/v2/pins", &device_id)
+            .send_form(&[("strong", "false")])
+            .map_err(|e| explain(e, "Plex sign-in"))?
+            .into_json()?;
+        let id = resp["id"].as_u64().ok_or_else(|| anyhow!("Plex sign-in: unexpected answer from plex.tv"))?;
+        let code = str_of(&resp["code"]);
+        if code.is_empty() {
+            bail!("Plex sign-in: unexpected answer from plex.tv");
+        }
+        let auth_url = format!(
+            "https://app.plex.tv/auth#?clientID={}&code={}&context%5Bdevice%5D%5Bproduct%5D={}",
+            percent_encode(&device_id),
+            percent_encode(&code),
+            percent_encode("Unitn player")
+        );
+        Ok(PlexPin { id, code, auth_url, device_id })
+    }
+
+    pub fn pin_token(pin: &PlexPin) -> Result<Option<String>> {
+        let resp: Value = plex_tv("GET", &format!("/api/v2/pins/{}", pin.id), &pin.device_id)
+            .call()
+            .map_err(|e| match e {
+                ureq::Error::Status(404, _) => anyhow!("The Plex sign-in expired. Please try again."),
+                e => explain(e, "Plex sign-in"),
+            })?
+            .into_json()?;
+        let token = str_of(&resp["authToken"]);
+        Ok((!token.is_empty()).then_some(token))
+    }
+
+    /// A server from plex.tv's resource list.
+    struct Resource {
+        token: String,
+        owned: bool,
+        /// Connection addresses, best first (local, then remote, then relay).
+        uris: Vec<String>,
+    }
+
+    fn resources(account_token: &str, device_id: &str) -> Result<Vec<Resource>> {
+        let json: Value = plex_tv("GET", "/api/v2/resources", device_id)
+            .query("includeHttps", "1")
+            .query("includeRelay", "1")
+            .set("X-Plex-Token", account_token)
+            .call()
+            .map_err(|e| explain(e, "Plex"))?
+            .into_json()?;
+        let mut out: Vec<Resource> = json
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter(|r| str_of(&r["provides"]).split(',').any(|p| p == "server"))
+                    .map(|r| {
+                        let mut conns: Vec<(u8, String)> = r["connections"]
+                            .as_array()
+                            .map(|cs| {
+                                cs.iter()
+                                    .filter_map(|c| {
+                                        let uri = str_of(&c["uri"]);
+                                        let rank = if c["relay"].as_bool() == Some(true) {
+                                            2
+                                        } else if c["local"].as_bool() == Some(true) {
+                                            0
+                                        } else {
+                                            1
+                                        };
+                                        (!uri.is_empty()).then_some((rank, uri.trim_end_matches('/').to_string()))
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        conns.sort_by_key(|c| c.0);
+                        Resource {
+                            token: str_of(&r["accessToken"]),
+                            owned: r["owned"].as_bool().unwrap_or(false),
+                            uris: conns.into_iter().map(|c| c.1).collect(),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort_by_key(|r| !r.owned);
+        Ok(out)
+    }
+
+    /// `host:port` of an address, for comparing what the user typed with
+    /// plex.tv's connection list.
+    pub(super) fn host_port(url: &str) -> String {
+        let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+        let host = rest.split('/').next().unwrap_or(rest).to_ascii_lowercase();
+        if host.contains(':') {
+            host
+        } else if url.starts_with("https://") {
+            format!("{host}:443")
+        } else {
+            format!("{host}:80")
+        }
+    }
+
+    pub fn connect_account(url: &str, account_token: &str, device_id: String) -> Result<ServerConfig> {
+        let found = resources(account_token, &device_id).unwrap_or_else(|e| {
+            crate::log::log(format!("servers: plex.tv resource list failed: {e:#}"));
+            Vec::new()
+        });
+        if !url.is_empty() {
+            // Shared servers need their own access token; an owned server
+            // also accepts the account token.
+            let want = host_port(url);
+            let token = found
+                .iter()
+                .find(|r| r.uris.iter().any(|u| host_port(u) == want))
+                .map(|r| r.token.clone())
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| account_token.to_string());
+            return finish(url, "", token, device_id);
+        }
+        if found.is_empty() {
+            bail!("No Plex server found on your account. Enter the server's address.");
+        }
+        let mut last_err = None;
+        for res in &found {
+            let token = if res.token.is_empty() { account_token.to_string() } else { res.token.clone() };
+            for uri in &res.uris {
+                let probe = agent()
+                    .get(&format!("{uri}/identity"))
+                    .timeout(Duration::from_secs(4))
+                    .set("Accept", "application/json")
+                    .set("X-Plex-Token", &token)
+                    .call();
+                if probe.is_err() {
+                    continue;
+                }
+                match finish(uri, "", token.clone(), device_id.clone()) {
+                    Ok(cfg) => return Ok(cfg),
+                    Err(e) => {
+                        last_err = Some(e);
+                        break; // reachable, but no music library: try the next server
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("Couldn't reach your Plex server. Enter its address.")))
+    }
+
+    fn finish(url: &str, user: &str, token: String, device_id: String) -> Result<ServerConfig> {
         let mut cfg = ServerConfig {
             kind: ServerKind::Plex,
             name: "Plex".into(),
@@ -542,6 +731,14 @@ mod tests {
         assert_eq!(t[0].stream_ext.as_deref(), Some("flac"));
         assert!(t[0].stream_url.as_deref().unwrap().starts_with("http://nas:8096/Audio/T1/stream?static=true"));
         assert_eq!(t[0].year, 2008);
+    }
+
+    #[test]
+    fn plex_host_port() {
+        assert_eq!(plex::host_port("http://192.168.1.5:32400"), "192.168.1.5:32400");
+        assert_eq!(plex::host_port("https://10-0-0-2.abc.plex.direct:32400/"), "10-0-0-2.abc.plex.direct:32400");
+        assert_eq!(plex::host_port("https://plex.example.com"), "plex.example.com:443");
+        assert_eq!(plex::host_port("http://NAS/plex"), "nas:80");
     }
 
     #[test]
