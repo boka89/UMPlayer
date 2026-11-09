@@ -679,8 +679,12 @@ mod plex {
                 match finish(uri, "", token.clone(), device_id.clone()) {
                     Ok(cfg) => return Ok(cfg),
                     Err(e) => {
+                        crate::log::log(format!("servers: Plex at {uri}: {e:#}"));
+                        let no_music = e.to_string().contains("no music library");
                         last_err = Some(e);
-                        break; // reachable, but no music library: try the next server
+                        if no_music {
+                            break; // this server has no music: try the next server
+                        }
                     }
                 }
             }

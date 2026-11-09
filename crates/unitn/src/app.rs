@@ -70,6 +70,8 @@ enum Bg {
     PodcastRefreshed { feed: String, result: Result<(), String> },
     /// "Sign in with Plex": waiting for the user to approve in the browser.
     PlexWaiting { login: u64, code: Option<String>, opened: bool },
+    /// The Plex sign-in was approved in the browser; connecting to the server.
+    PlexApproved { login: u64 },
     /// The album list of a server arrived.
     ServerAlbums { request: u64, key: String, result: Result<Vec<ServerAlbum>, String> },
     /// A server album cover was downloaded.
@@ -826,6 +828,13 @@ impl App {
             Bg::FixResults { request, result } => self.on_fix_results(request, result),
             Bg::ServerConnected(result) => self.on_server_connected(result),
             Bg::PlexWaiting { login, code, opened } => self.on_plex_waiting(login, code, opened),
+            Bg::PlexApproved { login } => {
+                if login == self.plex_login.load(Ordering::SeqCst) {
+                    if let Some(ui) = self.ui() {
+                        ui.set_server_dialog_status("Signed in to Plex. Connecting to your server…".into());
+                    }
+                }
+            }
             Bg::ServerSearch { request, tracks } => self.on_server_search(request, tracks),
             Bg::Lyrics { track, lyrics, failed } => self.on_lyrics(track, lyrics, failed),
             Bg::PodcastResults { request, result } => self.on_podcast_results(request, result),
@@ -837,6 +846,7 @@ impl App {
                 }
                 match result {
                     Ok(list) => {
+                        log(format!("servers: {} albums loaded", list.len()));
                         self.server.cache.insert(key, list);
                         self.show_server_albums();
                     }
@@ -1632,6 +1642,7 @@ impl App {
                     }
                 };
                 log("servers: Plex sign-in approved, connecting");
+                let _ = tx.send(Bg::PlexApproved { login });
                 Ok(Some(servers::plex_connect_account(&url, &token, pin.device_id)?))
             })();
             if !alive() {
@@ -1696,6 +1707,7 @@ impl App {
                 };
                 self.server.cache.remove(&key);
                 self.save_settings();
+                self.refresh_servers();
                 self.show_toast(&format!("Connected to {}", cfg.name));
                 if let Some(ui) = self.ui() {
                     ui.set_server_dialog(false);
