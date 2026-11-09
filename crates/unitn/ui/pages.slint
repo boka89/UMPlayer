@@ -54,6 +54,7 @@ component EmptyState inherits VerticalLayout {
 
 component AlbumCard inherits Rectangle {
     in property <AlbumItem> item;
+    in property <bool> playing;
     callback clicked;
 
     width: 176px;
@@ -65,15 +66,41 @@ component AlbumCard inherits Rectangle {
     VerticalLayout {
         padding: 8px;
         spacing: 4px;
-        Artwork {
-            size: 160px;
-            source: root.item.cover;
-            has-image: root.item.has-cover;
+        Rectangle {
+            width: 160px;
+            height: 160px;
+            Artwork {
+                size: 160px;
+                source: root.item.cover;
+                has-image: root.item.has-cover;
+            }
+            // The album that is playing: accent outline and a badge.
+            if root.playing: Rectangle {
+                border-radius: 10px;
+                border-width: 3px;
+                border-color: Theme.accent;
+            }
+            if root.playing: Rectangle {
+                x: parent.width - self.width - 8px;
+                y: parent.height - self.height - 8px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                background: Theme.accent;
+                drop-shadow-blur: 6px;
+                drop-shadow-color: #00000060;
+                Image {
+                    source: @image-url("icons/play.svg");
+                    width: 14px;
+                    height: 14px;
+                    colorize: white;
+                }
+            }
         }
         Rectangle { height: 4px; }
         Text {
             text: root.item.title;
-            color: Theme.fg;
+            color: root.playing ? Theme.accent : Theme.fg;
             font-size: 13px;
             font-weight: 600;
             overflow: elide;
@@ -105,6 +132,7 @@ export component AlbumsPage inherits Rectangle {
     in property <[AlbumItem]> albums;
     in property <bool> library-empty;
     in property <bool> scanning;
+    in property <string> playing-album;
     callback open-album(int);
     callback add-folder();
 
@@ -121,6 +149,7 @@ export component AlbumsPage inherits Rectangle {
             x: 20px + Math.mod(i, root.cols) * root.cell-w;
             y: 8px + Math.floor(i / root.cols) * root.cell-h;
             item: album;
+            playing: album.key != "" && album.key == root.playing-album;
             clicked => { root.open-album(i); }
         }
     }
@@ -971,6 +1000,7 @@ export component ServerPage inherits Rectangle {
     in property <[AlbumItem]> albums;
     in property <string> status;
     in property <bool> loading;
+    in property <string> playing-album;
     callback open-album(int);
     callback refresh();
 
@@ -1003,6 +1033,7 @@ export component ServerPage inherits Rectangle {
                 albums: root.albums;
                 library-empty: false;
                 scanning: false;
+                playing-album: root.playing-album;
                 open-album(i) => { root.open-album(i); }
             }
             if root.albums.length == 0: Text {

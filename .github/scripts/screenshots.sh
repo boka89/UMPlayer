@@ -96,6 +96,8 @@ run_theme() { # theme-number name
   click 790 254 1          # back to Comfy
   click 524 257 4          # Play album
   shot "$2-playing"
+  click 120 117 2          # Albums: the playing album is marked
+  shot "$2-albums-playing"
   click 120 411 3          # Now Playing (visualizer)
   shot "$2-nowplaying"
   xdotool mousemove 900 480; sleep 0.8   # mouse over the visualizer: its buttons appear
@@ -170,6 +172,17 @@ run_theme() { # theme-number name
     shot "$2-server"
     click 341 206 4        # first album on the server
     shot "$2-server-album"
+    click 524 257 4        # play it
+    click 120 486 3        # back to the server: the album is marked
+    shot "$2-server-playing"
+  fi
+  if [ "$2" = dark ]; then
+    # Try to make the window tiny: it must stay at the minimum size, with
+    # the now playing bar visible.
+    xdotool windowsize "$WID" 480 360
+    sleep 3
+    shot "$2-small-window"
+    xdotool getwindowgeometry "$WID" | tee "$OUT/small-window.txt"
   fi
   kill "$pid" || true
   wait "$pid" 2>/dev/null || true

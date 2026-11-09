@@ -68,6 +68,8 @@ export component AppWindow inherits Window {
     in property <string> albums-title: "Albums";
     in property <bool> albums-filtered: false;
     in property <AlbumItem> album;
+    /// Key of the album the playing song belongs to ("" for none).
+    in property <string> playing-album;
     in property <string> album-info;
     in property <[TrackItem]> album-tracks;
     in property <[ArtistItem]> artists;
@@ -333,8 +335,13 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            // Sidebar and pages. They may be cut off (never pushed out of the
+            // window), so the now playing bar always stays visible.
+            Rectangle {
+            vertical-stretch: 1;
+            min-height: 0px;
+            clip: true;
             HorizontalLayout {
-                vertical-stretch: 1;
 
                 // ---------------- Sidebar ----------------
                 Rectangle {
@@ -620,6 +627,7 @@ export component AppWindow inherits Window {
                             albums: root.albums;
                             library-empty: root.library-empty;
                             scanning: root.scanning;
+                            playing-album: root.playing-album;
                             open-album(i) => {
                                 root.open-album(i);
                                 root.page = 5;
@@ -632,6 +640,7 @@ export component AppWindow inherits Window {
                             albums: root.server-albums;
                             status: root.server-status;
                             loading: root.server-loading;
+                            playing-album: root.playing-album;
                             open-album(i) => {
                                 root.open-server-album(i);
                                 root.page = 5;
@@ -821,6 +830,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
             }
 
             // ---------------- Now playing bar ----------------

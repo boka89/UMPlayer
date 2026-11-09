@@ -3,6 +3,8 @@
 import { Theme } from "theme.slint";
 
 export struct AlbumItem {
+    /// Identifies the album (artist + title) to mark the one playing.
+    key: string,
     title: string,
     artist: string,
     year: string,

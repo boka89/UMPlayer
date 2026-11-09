@@ -129,6 +129,15 @@ fn track_key(t: &Track) -> String {
     t.path.to_string_lossy().into_owned()
 }
 
+/// Identifies an album by artist and title, the same way for local and
+/// server albums, so the album that is playing can be marked.
+fn album_key(artist: &str, title: &str) -> String {
+    if title.trim().is_empty() {
+        return String::new();
+    }
+    format!("{}\u{1f}{}", artist.trim().to_lowercase(), title.trim().to_lowercase())
+}
+
 fn station_key(s: &Station) -> String {
     format!("radio:{}", s.uuid)
 }
@@ -977,6 +986,7 @@ impl App {
     fn album_item(&mut self, a: &Album) -> AlbumItem {
         let (cover, has_cover) = self.cover(&a.cover);
         AlbumItem {
+            key: album_key(&a.artist, &a.title).into(),
             title: a.title.as_str().into(),
             artist: a.artist.as_str().into(),
             year: if a.year > 0 { a.year.to_string().into() } else { SharedString::new() },
@@ -1807,6 +1817,7 @@ impl App {
                 }
                 let (cover, has_cover) = self.cover(&cached);
                 AlbumItem {
+                    key: album_key(&a.artist, &a.title).into(),
                     title: a.title.as_str().into(),
                     artist: a.artist.as_str().into(),
                     year: if a.year > 0 { a.year.to_string().into() } else { SharedString::new() },
@@ -2780,6 +2791,13 @@ impl App {
                 ui.set_is_radio(false);
                 ui.set_has_track(true);
                 ui.set_current_key(track_key(&t).into());
+                // Podcast episodes aren't albums.
+                let album = if t.path.to_string_lossy().starts_with("podcast://") {
+                    String::new()
+                } else {
+                    album_key(t.grouping_artist(), &t.album)
+                };
+                ui.set_playing_album(album.into());
                 self.media.set_metadata(&t.title, &t.artist, &t.album, self.duration);
                 self.update_backdrop(t.grouping_artist());
             }
@@ -2797,6 +2815,7 @@ impl App {
                 ui.set_is_radio(true);
                 ui.set_has_track(true);
                 ui.set_current_key(station_key(&s).into());
+                ui.set_playing_album(SharedString::new());
                 self.media.set_metadata(&title, &s.name, "", None);
                 self.show_backdrop(None);
             }
@@ -2808,6 +2827,7 @@ impl App {
                 ui.set_is_radio(false);
                 ui.set_has_track(false);
                 ui.set_current_key(SharedString::new());
+                ui.set_playing_album(SharedString::new());
             }
         }
         self.load_lyrics();

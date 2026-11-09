@@ -125,8 +125,19 @@ fn run() -> Result<()> {
         let weak = ui.as_weak();
         let dropped: Rc<RefCell<Vec<std::path::PathBuf>>> = Rc::default();
         let timer = Rc::new(Timer::default());
+        let resize_weak = ui.as_weak();
         ui.window().on_winit_window_event(move |_, event| {
             match event {
+                WindowEvent::Resized(_) => {
+                    // Re-check after the event: the window must not get
+                    // smaller than the size the player still works at.
+                    let weak = resize_weak.clone();
+                    Timer::single_shot(Duration::ZERO, move || {
+                        if let Some(ui) = weak.upgrade() {
+                            keep_min_size(&ui);
+                        }
+                    });
+                }
                 WindowEvent::HoveredFile(_) => {
                     if let Some(ui) = weak.upgrade() {
                         ui.set_drop_hover(true);
@@ -167,6 +178,7 @@ fn run() -> Result<()> {
                 app.set_media(media);
                 app.apply_glass();
             }
+            keep_min_size(&ui);
         });
     }
 
@@ -197,6 +209,28 @@ fn run() -> Result<()> {
     ui.hide()?;
     app.borrow().save_settings();
     Ok(())
+}
+
+/// Smallest window size (logical pixels) at which the sidebar, the pages
+/// and the now playing bar all still fit. Same as `min-width`/`min-height`
+/// in app.slint; set on the native window as well, because not every
+/// platform picked up the Slint value.
+const MIN_WINDOW: (f64, f64) = (960.0, 620.0);
+
+fn keep_min_size(ui: &AppWindow) {
+    use slint::winit_030::winit::dpi::LogicalSize;
+    use slint::winit_030::WinitWindowAccessor;
+    ui.window().with_winit_window(|w| {
+        w.set_min_inner_size(Some(LogicalSize::new(MIN_WINDOW.0, MIN_WINDOW.1)));
+        if w.fullscreen().is_some() {
+            return;
+        }
+        let size = w.inner_size().to_logical::<f64>(w.scale_factor());
+        if size.width < MIN_WINDOW.0 - 1.0 || size.height < MIN_WINDOW.1 - 1.0 {
+            unitn_core::log::log(format!("window: {:.0}×{:.0} is below the minimum, enlarging", size.width, size.height));
+            let _ = w.request_inner_size(LogicalSize::new(size.width.max(MIN_WINDOW.0), size.height.max(MIN_WINDOW.1)));
+        }
+    });
 }
 
 /// On macOS, make the title bar transparent and let the app draw underneath
