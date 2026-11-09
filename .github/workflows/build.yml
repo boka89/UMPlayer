@@ -90,17 +90,20 @@ jobs:
           path: screenshots/
 
       - name: Publish screenshots to the ci-screenshots branch
-        if: runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        # main -> ci-screenshots; other branches -> ci-screenshots-dev (for review before merging)
+        if: runner.os == 'Linux' && github.event_name == 'push' && always()
         run: |
           set -e
+          target=ci-screenshots
+          [ "${GITHUB_REF}" = "refs/heads/main" ] || target=ci-screenshots-dev
           dir=$(mktemp -d)
           cp -r screenshots "$dir/" && cp Cargo.lock "$dir/"
           cd "$dir"
-          git init -q -b ci-screenshots
+          git init -q -b "$target"
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add -A && git commit -qm "Screenshots for ${GITHUB_SHA}"
-          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" "$target"
 
       - name: Publish macOS window screenshots to the ci-mac-screenshots branch
         if: runner.os == 'macOS' && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
