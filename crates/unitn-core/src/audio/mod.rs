@@ -81,6 +81,7 @@ pub(crate) enum Command {
     Seek(f64),
     Volume(f32),
     SetNext(Option<Source>),
+    Crossfade(f64),
 }
 
 /// Handle to the audio thread. Cheap to use from the UI thread; all calls
@@ -136,6 +137,13 @@ impl Player {
     /// it starts. Cleared by every `load`/`stop`.
     pub fn set_next(&self, next: Option<Source>) {
         self.send(Command::SetNext(next));
+    }
+
+    /// Overlap in seconds between a song and the next one prepared with
+    /// [`Player::set_next`] (0 = gapless, no fade). Applies to the next
+    /// automatic transition.
+    pub fn set_crossfade(&self, seconds: f64) {
+        self.send(Command::Crossfade(seconds.clamp(0.0, 12.0)));
     }
 
     /// Seeks to an absolute position in seconds (ignored for live streams).

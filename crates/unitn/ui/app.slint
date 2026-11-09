@@ -4,11 +4,12 @@ import { Palette, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import {
     AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, MenuRow, FixCandidate, ServerItem, Chip,
+    PodcastItem, EpisodeItem,
     IconButton, PillButton, NavItem, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls,
 } from "widgets.slint";
-import { AlbumsPage, AlbumDetailPage, ArtistsPage, SongsPage, RadioPage, QueuePage, NowPlayingPage, SettingsPage, PlaylistPage, ServerPage } from "pages.slint";
+import { AlbumsPage, AlbumDetailPage, ArtistsPage, SongsPage, RadioPage, QueuePage, NowPlayingPage, SettingsPage, PlaylistPage, ServerPage, PodcastsPage } from "pages.slint";
 
-export { Theme, VizInfo, AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, FixCandidate, ServerItem }
+export { Theme, VizInfo, AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, FixCandidate, ServerItem, PodcastItem, EpisodeItem }
 
 component ThemeSwitch inherits Rectangle {
     callback selected(int);
@@ -196,6 +197,39 @@ export component AppWindow inherits Window {
     // Radio
     callback radio-select-tab(int);
     callback radio-search(string);
+    // Podcasts (page 10)
+    callback podcast-search(string);
+    callback podcast-subscribe(int);
+    callback podcast-open(int);
+    callback podcast-back();
+    callback podcast-refresh();
+    callback podcast-unsubscribe();
+    callback podcast-play(int);
+    in property <int> podcast-view: 0;
+    in property <bool> podcast-searching;
+    in property <[PodcastItem]> podcast-results;
+    in property <[PodcastItem]> podcast-shows;
+    in property <bool> podcast-loading;
+    in property <string> podcast-status;
+    in property <string> podcast-title;
+    in property <string> podcast-author;
+    in property <string> podcast-description;
+    in property <image> podcast-image;
+    in property <bool> podcast-has-image;
+    in property <[EpisodeItem]> podcast-episodes;
+    // Lyrics (Now Playing)
+    in property <bool> lyrics-open: false;
+    in property <[string]> lyrics-lines;
+    in property <int> lyrics-current: -1;
+    in property <bool> lyrics-synced;
+    in property <string> lyrics-status;
+    in property <string> lyrics-source;
+    callback lyrics-open-changed(bool);
+    // Playback settings
+    in property <int> crossfade: 0;
+    callback crossfade-changed(int);
+    in property <bool> lyrics-online: true;
+    callback lyrics-online-changed(bool);
     callback radio-genre(string);
     callback add-custom-stream(string, string);
     callback play-station(int);
@@ -381,6 +415,12 @@ export component AppWindow inherits Window {
                             clicked => { root.page = 3; }
                         }
                         NavItem {
+                            icon: @image-url("icons/podcast.svg");
+                            label: "Podcasts";
+                            selected: root.page == 10;
+                            clicked => { root.page = 10; }
+                        }
+                        NavItem {
                             icon: @image-url("icons/queue.svg");
                             label: "Queue";
                             selected: root.page == 4;
@@ -541,6 +581,7 @@ export component AppWindow inherits Window {
                                 : root.page == 7 ? "Settings"
                                 : root.page == 8 ? "Playlist"
                                 : root.page == 9 ? root.server-name
+                                : root.page == 10 ? (root.podcast-view == 1 ? "Podcast" : "Podcasts")
                                 : "";
                             color: Theme.fg;
                             font-size: 24px;
@@ -552,10 +593,14 @@ export component AppWindow inherits Window {
                             alignment: center;
                             search := SearchBox {
                                 width: 280px;
-                                placeholder: root.page == 3 ? "Search radio stations" : "Search songs, artists, albums";
+                                placeholder: root.page == 3 ? "Search radio stations"
+                                    : root.page == 10 ? "Search podcasts or paste an RSS link"
+                                    : "Search songs, artists, albums";
                                 edited(text) => {
                                     if (root.page == 3) {
                                         root.radio-search(text);
+                                    } else if (root.page == 10) {
+                                        root.podcast-search(text);
                                     } else {
                                         root.library-search(text);
                                         if (text != "") { root.page = 2; }
@@ -641,6 +686,29 @@ export component AppWindow inherits Window {
                             play-station(i) => { root.play-station(i); }
                             toggle-favorite(i) => { root.toggle-favorite(i); }
                         }
+                        if root.page == 10: PodcastsPage {
+                            width: parent.width;
+                            height: parent.height;
+                            view: root.podcast-view;
+                            searching: root.podcast-searching;
+                            results: root.podcast-results;
+                            shows: root.podcast-shows;
+                            loading: root.podcast-loading;
+                            status: root.podcast-status;
+                            show-title: root.podcast-title;
+                            show-author: root.podcast-author;
+                            show-description: root.podcast-description;
+                            show-image: root.podcast-image;
+                            show-has-image: root.podcast-has-image;
+                            episodes: root.podcast-episodes;
+                            current-key: root.current-key;
+                            subscribe(i) => { root.podcast-subscribe(i); }
+                            open-show(i) => { root.podcast-open(i); }
+                            back => { root.podcast-back(); }
+                            refresh => { root.podcast-refresh(); }
+                            unsubscribe => { root.podcast-unsubscribe(); }
+                            play-episode(i) => { root.podcast-play(i); }
+                        }
                         if root.page == 6: NowPlayingPage {
                             width: parent.width;
                             height: parent.height;
@@ -674,6 +742,13 @@ export component AppWindow inherits Window {
                             eq-preamp-changed(v) => { root.eq-preamp-changed(v); }
                             eq-reset => { root.eq-reset(); }
                             eq-curve-aspect(a) => { root.eq-curve-aspect(a); }
+                            lyrics-open: root.lyrics-open;
+                            lyrics-lines: root.lyrics-lines;
+                            lyrics-current: root.lyrics-current;
+                            lyrics-synced: root.lyrics-synced;
+                            lyrics-status: root.lyrics-status;
+                            lyrics-source: root.lyrics-source;
+                            lyrics-open-changed(o) => { root.lyrics-open-changed(o); }
                         }
                         if root.page == 8: PlaylistPage {
                         width: parent.width;
@@ -720,6 +795,10 @@ export component AppWindow inherits Window {
                             glass-changed(on) => { root.glass-changed(on); }
                             glass-countdown: root.glass-countdown;
                             glass-keep => { root.glass-keep(); }
+                            crossfade: root.crossfade;
+                            crossfade-changed(secs) => { root.crossfade-changed(secs); }
+                            lyrics-online: root.lyrics-online;
+                            lyrics-online-changed(on) => { root.lyrics-online-changed(on); }
                         density-changed(c) => {
                             Theme.compact = c;
                             root.density-changed(c);

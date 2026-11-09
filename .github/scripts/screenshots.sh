@@ -42,6 +42,23 @@ ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=330:duration=120" -c:a lib
   -metadata title="1 Ghosts I" -metadata artist="Nine Inch Nails" -metadata album="Ghosts I–IV" \
   -metadata date=2008 -metadata track=1 "$dir/01 Ghosts I.mp3"
 
+# Synced lyrics for the first song, as a .lrc file next to it.
+cat > "$MUSIC/Aurora Lane/Northern Lights/01 Polar Night.lrc" <<'LRC'
+[ar:Aurora Lane]
+[ti:Polar Night]
+[00:00.50]Snow is falling on the frozen bay
+[00:04.00]Every lantern keeps the dark away
+[00:08.00]Polar night, hold on to me
+[00:12.00]Northern lights across the sea
+[00:16.00]Glass rivers sleeping under ice
+[00:20.00]Midnight sun will come, it will come twice
+[00:24.00]Polar night, hold on to me
+[00:28.00]Northern lights across the sea
+[00:32.00]
+[00:36.00]Count the stars until the morning
+[00:40.00]Count the stars until the morning
+LRC
+
 mkdir -p "$HOME/.config"
 echo "XDG_MUSIC_DIR=\"$MUSIC\"" > "$HOME/.config/user-dirs.dirs"
 
@@ -79,7 +96,7 @@ run_theme() { # theme-number name
   click 790 254 1          # back to Comfy
   click 524 257 4          # Play album
   shot "$2-playing"
-  click 120 369 3          # Now Playing (visualizer)
+  click 120 411 3          # Now Playing (visualizer)
   shot "$2-nowplaying"
   click 1221 326 2         # full screen button on the visualizer
   shot "$2-viz-0"
@@ -101,20 +118,39 @@ run_theme() { # theme-number name
   click 297 255 1          # ON/off: back to bypassed
   click 1187 92 1          # close it again
   xdotool key Escape; sleep 1
+  click 1070 92 3          # Lyrics button (synced .lrc next to the song)
+  shot "$2-lyrics"
+  click 1070 92 1          # back to the visualizer
   click 120 285 6          # Radio (wait for stations)
   shot "$2-radio"
   if [ "$2" = dark ]; then
     click 700 168 10       # play first station
     shot "$2-radio-playing"
-    click 120 369 3
+    click 120 411 3
     shot "$2-nowplaying-radio"
+    click 120 327 2        # Podcasts
+    shot "$2-podcasts-empty"
+    click 1110 42 1        # search box
+    xdotool type --delay 60 "NASA"; sleep 8
+    shot "$2-podcasts-search"
+    click 1190 140 12      # Subscribe to the first show
+    shot "$2-podcasts-subscribed"
+    click 1110 42 1
+    xdotool key ctrl+a BackSpace; sleep 3
+    shot "$2-podcasts"
+    click 500 130 8        # open the show
+    shot "$2-podcast-show"
+    click 600 250 12       # play the newest episode
+    shot "$2-podcast-playing"
+    click 120 411 3
+    shot "$2-nowplaying-podcast"
   fi
   click 120 201            # Songs
   shot "$2-songs"
   click 200 697            # Settings (gear next to the theme switch)
   shot "$2-settings"
   if [ -f /tmp/jellyfin.json ]; then
-    click 120 444 6        # the Jellyfin server in the sidebar
+    click 120 486 6        # the Jellyfin server in the sidebar
     shot "$2-server"
     click 341 206 4        # first album on the server
     shot "$2-server-album"
@@ -128,6 +164,12 @@ pulseaudio -D --exit-idle-time=-1 --system=false || true
 sleep 1
 pactl load-module module-null-sink sink_name=null || true
 pactl set-default-sink null || true
+
+# Crossfade on the real (null) sound device: two 14 s tones, 4 s overlap.
+ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=330:duration=14" -ac 2 /tmp/cf-a.wav
+ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=550:duration=14" -ac 2 /tmp/cf-b.wav
+cargo run --release -q -p unitn-core --example crossfade_check -- /tmp/cf-a.wav /tmp/cf-b.wav 4 \
+  | tee "$OUT/crossfade.txt" || true
 
 export DISPLAY=:99
 Xvfb :99 -screen 0 1280x820x24 &

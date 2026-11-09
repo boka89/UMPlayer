@@ -3,7 +3,7 @@
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import {
-    ServerItem,
+    ServerItem, PodcastItem, EpisodeItem,
     AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, TextField,
     IconButton, PillButton, Chip, Artwork, Spectrum, SeekBar, Visualizer, EqPanel, VizControls,
 } from "widgets.slint";
@@ -707,6 +707,77 @@ export component QueuePage inherits Rectangle {
     }
 }
 
+/// Song lyrics. Synced lyrics follow the music with the current line
+/// highlighted in the middle; plain lyrics can be scrolled.
+component LyricsPanel inherits Rectangle {
+    in property <[string]> lines;
+    in property <int> current: -1;
+    in property <bool> synced;
+    in property <string> status;
+    in property <string> source;
+    property <length> row: 40px;
+
+    border-radius: 16px;
+    background: Theme.dark ? #0a0a0f8c : Theme.surface.transparentize(0.45);
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    if root.lines.length == 0: Text {
+        x: 24px;
+        width: parent.width - 48px;
+        height: parent.height;
+        text: root.status;
+        color: Theme.fg-muted;
+        font-size: 16px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.lines.length > 0 && root.synced: VerticalLayout {
+        x: 24px;
+        width: parent.width - 48px;
+        y: parent.height * 0.42 - (Math.max(root.current, 0) + 0.5) * root.row;
+        animate y { duration: 380ms; easing: ease-in-out; }
+        for line[i] in root.lines: Text {
+            height: root.row;
+            text: line;
+            font-size: i == root.current ? 24px : 18px;
+            font-weight: i == root.current ? 800 : 600;
+            color: i == root.current ? Theme.fg : Theme.fg-muted.transparentize(i < root.current ? 0.35 : 0.0);
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+            animate font-size { duration: 200ms; }
+        }
+    }
+    if root.lines.length > 0 && !root.synced: plain := ScrollView {
+        width: parent.width;
+        height: parent.height - 24px;
+        VerticalLayout {
+            width: plain.visible-width;
+            padding: 24px;
+            spacing: 4px;
+            for line in root.lines: Text {
+                text: line;
+                color: Theme.fg;
+                font-size: 17px;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
+        }
+    }
+    if root.source != "" && root.lines.length > 0: Text {
+        x: 16px;
+        y: parent.height - 22px;
+        width: parent.width - 32px;
+        text: "Lyrics: " + root.source;
+        color: Theme.fg-muted;
+        font-size: 11px;
+        horizontal-alignment: right;
+    }
+}
+
 export component NowPlayingPage inherits Rectangle {
     in property <string> title;
     in property <string> subtitle;
@@ -740,6 +811,14 @@ export component NowPlayingPage inherits Rectangle {
     callback eq-preamp-changed(float);
     callback eq-reset();
     callback eq-curve-aspect(float);
+    // Lyrics (shown instead of the visualizer)
+    in property <bool> lyrics-open;
+    in property <[string]> lyrics-lines;
+    in property <int> lyrics-current: -1;
+    in property <bool> lyrics-synced;
+    in property <string> lyrics-status;
+    in property <string> lyrics-source;
+    callback lyrics-open-changed(bool);
 
     // Artist photo, faded into the background.
     if root.has-backdrop: Rectangle {
@@ -800,12 +879,22 @@ export component NowPlayingPage inherits Rectangle {
             VerticalLayout {
                 alignment: start;
                 horizontal-stretch: 0;
-                PillButton {
-                    horizontal-stretch: 0;
-                    text: "Equalizer";
-                    icon: @image-url("icons/equalizer.svg");
-                    primary: root.eq-open;
-                    clicked => { root.eq-open-changed(!root.eq-open); }
+                HorizontalLayout {
+                    spacing: 8px;
+                    PillButton {
+                        horizontal-stretch: 0;
+                        text: "Lyrics";
+                        icon: @image-url("icons/lyrics.svg");
+                        primary: root.lyrics-open;
+                        clicked => { root.lyrics-open-changed(!root.lyrics-open); }
+                    }
+                    PillButton {
+                        horizontal-stretch: 0;
+                        text: "Equalizer";
+                        icon: @image-url("icons/equalizer.svg");
+                        primary: root.eq-open;
+                        clicked => { root.eq-open-changed(!root.eq-open); }
+                    }
                 }
             }
         }
@@ -823,7 +912,16 @@ export component NowPlayingPage inherits Rectangle {
             close => { root.eq-open-changed(false); }
             curve-aspect(a) => { root.eq-curve-aspect(a); }
         }
-        Rectangle {
+        if root.lyrics-open: LyricsPanel {
+            vertical-stretch: 1;
+            min-height: 140px;
+            lines: root.lyrics-lines;
+            current: root.lyrics-current;
+            synced: root.lyrics-synced;
+            status: root.lyrics-status;
+            source: root.lyrics-source;
+        }
+        if !root.lyrics-open: Rectangle {
             vertical-stretch: 1;
             min-height: 140px;
             border-radius: 16px;
@@ -957,6 +1055,10 @@ export component SettingsPage inherits Rectangle {
     in property <bool> scanning;
     in property <bool> download-art;
     callback download-art-changed(bool);
+    in property <int> crossfade;
+    callback crossfade-changed(int);
+    in property <bool> lyrics-online;
+    callback lyrics-online-changed(bool);
     callback theme-selected(int);
     callback density-changed(bool);
     callback opacity-changed(float);
@@ -1070,6 +1172,46 @@ export component SettingsPage inherits Rectangle {
                 Text {
                     text: (root.glass-available ? "Frosted glass blurs what's behind the window, like macOS's own sidebars. " : "")
                         + "Transparency lets your desktop show through the window background. 0% is fully solid.";
+                    color: Theme.fg-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+
+            SettingsCard {
+                title: "Playback";
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Crossfade";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    for secs in [0, 2, 4, 6, 8, 12]: Chip {
+                        text: secs == 0 ? "Off" : secs + " s";
+                        selected: root.crossfade == secs;
+                        clicked => { root.crossfade-changed(secs); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Find lyrics online";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "On"; selected: root.lyrics-online; clicked => { root.lyrics-online-changed(true); } }
+                    Chip { text: "Off"; selected: !root.lyrics-online; clicked => { root.lyrics-online-changed(false); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                Text {
+                    text: "Crossfade blends the end of a song into the next one; songs from the same album still play gaplessly. "
+                        + "Lyrics come from a .lrc file next to the song, from the song's tags, or online from LRCLIB (lrclib.net).";
                     color: Theme.fg-muted;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -1388,6 +1530,280 @@ export component PlaylistPage inherits Rectangle {
                 current: track.key == root.current-key;
                 activated => { root.play-track(i); }
                 menu(x, y) => { root.track-menu(i, x, y); }
+            }
+        }
+    }
+}
+
+/// One podcast in the list (artwork, title, author, info, optional button).
+component PodcastRow inherits Rectangle {
+    in property <PodcastItem> item;
+    in property <bool> show-subscribe;
+    callback clicked();
+    callback subscribe();
+
+    height: 72px;
+    border-radius: 8px;
+    background: touch.has-hover ? Theme.surface : transparent;
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            Artwork {
+                size: 52px;
+                source: root.item.image;
+                has-image: root.item.has-image;
+                placeholder: @image-url("icons/podcast.svg");
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 2px;
+            Text {
+                text: root.item.title;
+                color: Theme.fg;
+                font-size: 14px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Text {
+                text: root.item.author;
+                color: Theme.fg-muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+            if root.item.info != "": Text {
+                text: root.item.info;
+                color: Theme.accent;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+        if root.show-subscribe: VerticalLayout {
+            alignment: center;
+            PillButton {
+                text: root.item.subscribed ? "Subscribed" : "Subscribe";
+                icon: @image-url("icons/plus.svg");
+                has-icon: !root.item.subscribed;
+                primary: !root.item.subscribed;
+                clicked => { root.subscribe(); }
+            }
+        }
+    }
+}
+
+/// Podcasts: your shows, search results, and the episodes of one show.
+export component PodcastsPage inherits Rectangle {
+    /// 0 = your shows (or search results), 1 = one show.
+    in property <int> view;
+    in property <bool> searching;
+    in property <[PodcastItem]> results;
+    in property <[PodcastItem]> shows;
+    in property <bool> loading;
+    in property <string> status;
+    in property <string> show-title;
+    in property <string> show-author;
+    in property <string> show-description;
+    in property <image> show-image;
+    in property <bool> show-has-image;
+    in property <[EpisodeItem]> episodes;
+    in property <string> current-key;
+    callback subscribe(int);
+    callback open-show(int);
+    callback back();
+    callback refresh();
+    callback unsubscribe();
+    callback play-episode(int);
+
+    if root.view == 0: VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 10px;
+        if root.status != "": Text {
+            text: root.status;
+            color: Theme.fg-muted;
+            font-size: 12px;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            if root.searching && root.results.length > 0: ListView {
+                width: parent.width;
+                height: parent.height;
+                for show[i] in root.results: PodcastRow {
+                    item: show;
+                    show-subscribe: true;
+                    clicked => { root.subscribe(i); }
+                    subscribe => { root.subscribe(i); }
+                }
+            }
+            if root.searching && root.results.length == 0 && !root.loading: EmptyState {
+                width: parent.width;
+                height: parent.height;
+                icon: @image-url("icons/podcast.svg");
+                title: "No podcasts found";
+                message: "Try other words, or paste the show's RSS link.";
+            }
+            if !root.searching && root.shows.length == 0: EmptyState {
+                width: parent.width;
+                height: parent.height;
+                icon: @image-url("icons/podcast.svg");
+                title: "No podcasts yet";
+                message: "Search for a show in the box above, or paste its RSS link, then subscribe.";
+            }
+            if !root.searching && root.shows.length > 0: ListView {
+                width: parent.width;
+                height: parent.height;
+                for show[i] in root.shows: PodcastRow {
+                    item: show;
+                    show-subscribe: false;
+                    clicked => { root.open-show(i); }
+                }
+            }
+        }
+    }
+
+    if root.view == 1: VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 18px;
+            VerticalLayout {
+                alignment: start;
+                IconButton {
+                    icon: @image-url("icons/back.svg");
+                    size: 34px;
+                    icon-size: 18px;
+                    tint: Theme.fg;
+                    clicked => { root.back(); }
+                }
+            }
+            Artwork {
+                size: 112px;
+                source: root.show-image;
+                has-image: root.show-has-image;
+                placeholder: @image-url("icons/podcast.svg");
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 4px;
+                Text {
+                    text: root.show-title;
+                    color: Theme.fg;
+                    font-size: 22px;
+                    font-weight: 800;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.show-author;
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.show-description;
+                    color: Theme.fg-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    max-height: 34px;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-top: 4px;
+                    PillButton {
+                        text: root.loading ? "Refreshing…" : "Refresh";
+                        icon: @image-url("icons/refresh.svg");
+                        clicked => { root.refresh(); }
+                    }
+                    PillButton {
+                        text: "Unsubscribe";
+                        icon: @image-url("icons/trash.svg");
+                        clicked => { root.unsubscribe(); }
+                    }
+                }
+            }
+        }
+        if root.status != "": Text {
+            text: root.status;
+            color: Theme.fg-muted;
+            font-size: 12px;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            if root.episodes.length == 0: EmptyState {
+                width: parent.width;
+                height: parent.height;
+                icon: @image-url("icons/podcast.svg");
+                title: root.loading ? "Loading episodes…" : "No episodes";
+                message: root.loading ? "" : "This feed has no audio episodes yet.";
+            }
+            if root.episodes.length > 0: ListView {
+                width: parent.width;
+                height: parent.height;
+                for ep[i] in root.episodes: row := Rectangle {
+                    property <bool> current: ep.key == root.current-key;
+                    height: 58px;
+                    border-radius: 8px;
+                    background: row.current ? Theme.accent-soft : (touch.has-hover ? Theme.surface : transparent);
+                    touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.play-episode(i); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: row.current ? @image-url("icons/visualizer.svg") : @image-url("icons/play.svg");
+                                width: 18px;
+                                height: 18px;
+                                colorize: row.current ? Theme.accent : Theme.fg-muted;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            spacing: 3px;
+                            Text {
+                                text: ep.title;
+                                color: row.current ? Theme.accent : (ep.played ? Theme.fg-muted : Theme.fg);
+                                font-size: 14px;
+                                font-weight: ep.played ? 400 : 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: ep.info;
+                                color: Theme.fg-muted;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                            if ep.progress > 0 && !ep.played: Rectangle {
+                                height: 3px;
+                                border-radius: 1.5px;
+                                background: Theme.surface-hover;
+                                Rectangle {
+                                    x: 0;
+                                    width: parent.width * Math.min(1.0, ep.progress);
+                                    height: parent.height;
+                                    border-radius: 1.5px;
+                                    background: Theme.accent;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

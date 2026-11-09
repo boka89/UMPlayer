@@ -4,4 +4,4 @@ mod db;
 pub mod m3u;
 pub mod scanner;
 
-pub use db::Library;
+pub use db::{EpisodeState, Library, Podcast};

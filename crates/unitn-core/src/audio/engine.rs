@@ -90,6 +90,8 @@ struct Engine {
     /// Frames pushed to the output buffer since the last reset.
     written_frames: u64,
     tail: Option<Clock>,
+    /// Crossfade length in seconds (0 = plain gapless).
+    crossfade: f64,
 }
 
 /// Body of the audio thread.
@@ -111,6 +113,7 @@ pub fn run(commands: Receiver<Command>, events: Sender<PlayerEvent>, shared: Arc
         next_failed: false,
         written_frames: 0,
         tail: None,
+        crossfade: 0.0,
     };
 
     loop {
@@ -202,6 +205,7 @@ impl Engine {
             Command::Seek(seconds) => self.seek(seconds),
             Command::Volume(v) => self.shared.set_volume(v),
             Command::SetNext(next) => self.set_next(next),
+            Command::Crossfade(seconds) => self.crossfade = seconds,
         }
     }
 
@@ -311,7 +315,8 @@ impl Engine {
 
         // Decoded audio kept ready ahead of the speakers. Files are also fully
         // preloaded into memory (see prefetch.rs); streams get a longer cushion.
-        let ahead = if cur.live { 4.0 } else { 3.0 };
+        // With crossfade, keep enough audio buffered to fade over.
+        let ahead = if cur.live { 4.0 } else { (self.crossfade + 1.5).max(3.0) };
         let target = (out.rate as f64 * out.channels as f64 * ahead) as usize;
         let buffered = self.shared.lock().len();
         let mut idle = true;
@@ -411,17 +416,54 @@ impl Engine {
 
         // Gapless: chain the prepared next track right behind this one.
         if eof && self.next_ready.is_some() {
-            if let (Some(old), Some((feed, duration))) = (self.current.take(), self.next_ready.take()) {
-                log("audio: gapless switch to the next track");
+            if let (Some(old), Some((mut feed, duration))) = (self.current.take(), self.next_ready.take()) {
+                let mut resampler = old.resampler;
+                let mut start_frame = self.written_frames;
+                let mut next_eof = false;
+                let fade = (self.crossfade * rate) as usize;
+                if fade > 0 {
+                    // Crossfade: the old track's last seconds are still in the
+                    // output buffer. Decode the start of the next track and
+                    // blend it into them.
+                    let buffered = self.shared.lock().len() / channels.max(1);
+                    // Leave a little room for the audio the device is about to take.
+                    let want = fade.min(buffered.saturating_sub(rate as usize / 20));
+                    let mut fresh: Vec<f32> = Vec::with_capacity(want * channels);
+                    if let Feed::File(decoder) = &mut feed {
+                        while fresh.len() < want * channels {
+                            match catch_unwind(AssertUnwindSafe(|| decoder.next_chunk())) {
+                                Ok(Ok(Some(chunk))) => {
+                                    let mapped = map_channels(&chunk.samples, chunk.channels, channels);
+                                    fresh.extend(resampler.process(mapped, chunk.rate));
+                                }
+                                _ => {
+                                    next_eof = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    let mut buf = self.shared.lock();
+                    let overlap = (fresh.len() / channels.max(1)).min(want).min(buf.len() / channels.max(1));
+                    crossfade_into(&mut buf, &fresh[..overlap * channels], channels);
+                    let rest = &fresh[overlap * channels..];
+                    buf.extend(rest.iter().copied());
+                    drop(buf);
+                    start_frame = self.written_frames.saturating_sub(overlap as u64);
+                    self.written_frames += (rest.len() / channels.max(1)) as u64;
+                    log(format!("audio: crossfade over {:.1} s", overlap as f64 / rate));
+                } else {
+                    log("audio: gapless switch to the next track");
+                }
                 self.tail = Some(Clock { start_frame: old.start_frame, base: old.base, duration: old.duration });
                 self.next_source = None;
                 self.current = Some(Current {
                     feed,
                     duration,
-                    resampler: old.resampler,
+                    resampler,
                     base: 0.0,
-                    start_frame: self.written_frames,
-                    eof: false,
+                    start_frame,
+                    eof: next_eof,
                     live: false,
                     logged_first_chunk: false,
                     stalled: false,
@@ -459,6 +501,58 @@ impl Engine {
             }
             Err(e) => self.emit(PlayerEvent::Error(format!("Seek failed: {e}"))),
         }
+    }
+}
+
+/// Blends `fresh` (the start of the next track) into the last frames of
+/// `buf` (the end of the current one) with an equal-power fade.
+pub(crate) fn crossfade_into(buf: &mut std::collections::VecDeque<f32>, fresh: &[f32], channels: usize) {
+    let channels = channels.max(1);
+    let frames = fresh.len() / channels;
+    if frames == 0 || buf.len() < frames * channels {
+        return;
+    }
+    let start = buf.len() - frames * channels;
+    for f in 0..frames {
+        let t = (f as f32 + 0.5) / frames as f32 * std::f32::consts::FRAC_PI_2;
+        let (fade_in, fade_out) = (t.sin(), t.cos());
+        for c in 0..channels {
+            let i = start + f * channels + c;
+            buf[i] = buf[i] * fade_out + fresh[f * channels + c] * fade_in;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crossfade_into;
+    use std::collections::VecDeque;
+
+    #[test]
+    fn crossfade_blends_the_overlap() {
+        // 10 frames of the old track (value 1.0, stereo), 4 frames of the new (value 0.5).
+        let mut buf: VecDeque<f32> = std::iter::repeat(1.0).take(20).collect();
+        let fresh = vec![0.5; 8];
+        crossfade_into(&mut buf, &fresh, 2);
+        assert_eq!(buf.len(), 20);
+        // Untouched before the overlap.
+        assert!(buf.iter().take(12).all(|&v| v == 1.0));
+        // Old fades out, new fades in: first overlap frame mostly old, last mostly new.
+        assert!(buf[12] > 0.9 && buf[13] > 0.9);
+        assert!((buf[18] - 0.5).abs() < 0.2);
+        // Both channels get the same treatment.
+        for f in 6..10 {
+            assert_eq!(buf[f * 2], buf[f * 2 + 1]);
+        }
+        // Equal power: never louder than the louder input by much.
+        assert!(buf.iter().all(|&v| v <= 1.15));
+    }
+
+    #[test]
+    fn crossfade_ignores_too_little_buffer() {
+        let mut buf: VecDeque<f32> = std::iter::repeat(1.0).take(4).collect();
+        crossfade_into(&mut buf, &[0.0; 8], 2);
+        assert!(buf.iter().all(|&v| v == 1.0));
     }
 }
 

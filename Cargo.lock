@@ -5738,7 +5738,7 @@ dependencies = [
 
 [[package]]
 name = "unitn"
-version = "0.5.0"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "directories",
@@ -5754,11 +5754,12 @@ dependencies = [
 
 [[package]]
 name = "unitn-core"
-version = "0.5.0"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "cpal",
  "lofty",
+ "roxmltree",
  "rusqlite",
  "serde",
  "serde_json",

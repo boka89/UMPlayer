@@ -33,6 +33,24 @@ export struct StationItem {
     favorite: bool,
 }
 
+export struct PodcastItem {
+    title: string,
+    author: string,
+    info: string,
+    image: image,
+    has-image: bool,
+    subscribed: bool,
+}
+
+export struct EpisodeItem {
+    key: string,
+    title: string,
+    info: string,
+    played: bool,
+    /// How far it was listened to, 0..1.
+    progress: float,
+}
+
 export struct FixCandidate {
     title: string,
     info: string,

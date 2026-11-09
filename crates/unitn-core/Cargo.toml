@@ -1,6 +1,6 @@
 [package]
 name = "unitn-core"
-description = "Playback engine, music library and internet radio for Unitn"
+description = "Playback engine, music library, radio, servers, podcasts and lyrics for Unitn"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,7 @@ repository.workspace = true
 anyhow = "1"
 cpal = "0.15"
 lofty = "~0.21"
+roxmltree = "0.21"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

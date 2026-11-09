@@ -14,7 +14,9 @@ use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, Timer, TimerMo
 use unitn_core::artwork::{AlbumCandidate, ArtFetcher};
 use unitn_core::audio::eq::EqSettings;
 use unitn_core::audio::{PlayState, Player, PlayerEvent, Source, Spectrum};
-use unitn_core::library::{m3u, scanner, Library};
+use unitn_core::library::{m3u, scanner, EpisodeState, Library, Podcast};
+use unitn_core::lyrics::{self, Lyrics};
+use unitn_core::podcasts::{self, Show};
 use unitn_core::model::{Album, Artist, Playlist, Station, Track};
 use unitn_core::radio::RadioBrowser;
 use unitn_core::servers::{self, ServerAlbum, ServerConfig, ServerKind};
@@ -23,7 +25,10 @@ use unitn_core::util::format_time;
 
 use crate::media::{Media, MediaCmd};
 use crate::settings::{Paths, Settings};
-use crate::{AlbumItem, AppWindow, ArtistItem, FixCandidate, ServerItem, PlaylistItem, QueueEntry, StationItem, Theme, TrackItem, VizInfo};
+use crate::{
+    AlbumItem, AppWindow, ArtistItem, EpisodeItem, FixCandidate, PlaylistItem, PodcastItem, QueueEntry, ServerItem, StationItem,
+    Theme, TrackItem, VizInfo,
+};
 
 const RADIO_LIMIT: u32 = 150;
 /// Bars in the large visualizer; the mini one in the player bar groups them by four.
@@ -55,6 +60,14 @@ enum Bg {
     ServerConnected(Result<ServerConfig, String>),
     /// Songs found on the music servers for a library search.
     ServerSearch { request: u64, tracks: Vec<Track> },
+    /// Lyrics lookup finished (`lyrics` is `None` when there are none).
+    Lyrics { track: PathBuf, lyrics: Option<Lyrics>, failed: bool },
+    /// Podcast search (or a pasted RSS link) finished.
+    PodcastResults { request: u64, result: Result<Vec<Show>, String> },
+    /// Subscribing finished: the show's title, or why it failed.
+    PodcastSubscribed(Result<String, String>),
+    /// A show's feed was reloaded.
+    PodcastRefreshed { feed: String, result: Result<(), String> },
     /// "Sign in with Plex": waiting for the user to approve in the browser.
     PlexWaiting { login: u64, code: String, opened: bool },
     /// The album list of a server arrived.
@@ -261,6 +274,21 @@ pub struct App {
     plex_login: Arc<AtomicU64>,
     /// Current library search, so late server results can be ignored.
     search_request: Arc<AtomicU64>,
+    /// Lyrics of the current song, and the song they were asked for.
+    lyrics: Option<Lyrics>,
+    lyrics_for: Option<PathBuf>,
+    lyrics_line: Option<usize>,
+    podcasts: Vec<Podcast>,
+    podcast_results: Vec<Show>,
+    podcast_request: Arc<AtomicU64>,
+    /// Feed of the show that is open.
+    podcast_feed: Option<String>,
+    podcast_episodes: Vec<EpisodeState>,
+    /// Episodes started in this session: song key → (feed, guid).
+    episode_keys: HashMap<PathBuf, (String, String)>,
+    /// Where to continue an episode once it starts playing.
+    resume_at: Option<(PathBuf, f64)>,
+    episode_saved_at: f64,
     fix: FixState,
     fix_request: Arc<AtomicU64>,
     artists: Vec<Artist>,
@@ -362,6 +390,17 @@ impl App {
             server_request: Arc::new(AtomicU64::new(0)),
             plex_login: Arc::new(AtomicU64::new(0)),
             search_request: Arc::new(AtomicU64::new(0)),
+            lyrics: None,
+            lyrics_for: None,
+            lyrics_line: None,
+            podcasts: Vec::new(),
+            podcast_results: Vec::new(),
+            podcast_request: Arc::new(AtomicU64::new(0)),
+            podcast_feed: None,
+            podcast_episodes: Vec::new(),
+            episode_keys: HashMap::new(),
+            resume_at: None,
+            episode_saved_at: 0.0,
             fix: FixState::default(),
             fix_request: Arc::new(AtomicU64::new(0)),
             artists: Vec::new(),
@@ -430,6 +469,9 @@ impl App {
             ui.global::<Theme>().set_opacity(self.settings.opacity.clamp(0.5, 1.0));
             ui.set_viz_style(self.settings.viz_style.clamp(0, 4));
             ui.set_download_art(self.settings.download_art);
+            ui.set_crossfade(self.settings.crossfade);
+            ui.set_lyrics_online(self.settings.lyrics_online);
+            ui.set_lyrics_open(self.settings.lyrics_open);
             ui.set_glass_available(crate::glass::AVAILABLE);
             ui.set_glass(self.settings.glass && crate::glass::AVAILABLE);
             ui.global::<Theme>().set_glass(self.settings.glass && crate::glass::AVAILABLE);
@@ -439,6 +481,7 @@ impl App {
             ui.set_log_path(self.paths.log.display().to_string().into());
         }
         self.player.set_volume(self.settings.volume);
+        self.player.set_crossfade(self.settings.crossfade as f64);
         self.apply_eq();
         self.favorites = self.library.favorite_uuids().unwrap_or_default();
 
@@ -455,6 +498,8 @@ impl App {
         self.refresh_folders();
         self.refresh_playlists();
         self.refresh_servers();
+        self.refresh_podcasts();
+        self.refresh_all_podcasts();
         self.load_radio_tab(RADIO_TAB_POPULAR);
         self.refresh_now_playing();
         self.refresh_position();
@@ -668,6 +713,9 @@ impl App {
                 }
                 self.state = s;
                 self.refresh_play_state();
+                if s == PlayState::Playing {
+                    self.resume_episode();
+                }
             }
             PlayerEvent::Position { position, duration } => {
                 self.position = position;
@@ -675,6 +723,8 @@ impl App {
                     self.duration = duration;
                 }
                 self.refresh_position();
+                self.update_lyrics_line();
+                self.track_episode_progress();
             }
             PlayerEvent::Advanced => {
                 // Gapless: the engine already started the planned next track.
@@ -776,6 +826,10 @@ impl App {
             Bg::ServerConnected(result) => self.on_server_connected(result),
             Bg::PlexWaiting { login, code, opened } => self.on_plex_waiting(login, code, opened),
             Bg::ServerSearch { request, tracks } => self.on_server_search(request, tracks),
+            Bg::Lyrics { track, lyrics, failed } => self.on_lyrics(track, lyrics, failed),
+            Bg::PodcastResults { request, result } => self.on_podcast_results(request, result),
+            Bg::PodcastSubscribed(result) => self.on_podcast_subscribed(result),
+            Bg::PodcastRefreshed { feed, result } => self.on_podcast_refreshed(feed, result),
             Bg::ServerAlbums { request, key, result } => {
                 if request != self.server_request.load(Ordering::Relaxed) {
                     return;
@@ -2482,6 +2536,15 @@ impl App {
             _ => None,
         });
         self.planned_next = if source.is_some() { next } else { None };
+        // Songs of the same album flow into each other: keep those gapless.
+        let same_album = match (self.current.and_then(|c| self.queue.get(c)), next.and_then(|i| self.queue.get(i))) {
+            (Some(Item::Track(a)), Some(Item::Track(b))) => {
+                !a.album.is_empty() && a.album == b.album && a.grouping_artist() == b.grouping_artist()
+            }
+            _ => false,
+        };
+        let fade = if same_album { 0.0 } else { self.settings.crossfade.max(0) as f64 };
+        self.player.set_crossfade(fade);
         self.player.set_next(source);
     }
 
@@ -2742,6 +2805,459 @@ impl App {
                 ui.set_current_key(SharedString::new());
             }
         }
+        self.load_lyrics();
+    }
+
+    // ------------------------------------------------------------------
+    // Crossfade and lyrics
+    // ------------------------------------------------------------------
+
+    pub fn set_crossfade(&mut self, seconds: i32) {
+        self.settings.crossfade = seconds.clamp(0, 12);
+        self.save_settings();
+        if let Some(ui) = self.ui() {
+            ui.set_crossfade(self.settings.crossfade);
+        }
+        self.update_next();
+    }
+
+    pub fn set_lyrics_online(&mut self, on: bool) {
+        self.settings.lyrics_online = on;
+        self.save_settings();
+        if let Some(ui) = self.ui() {
+            ui.set_lyrics_online(on);
+        }
+        // Look again with the new setting.
+        self.lyrics_for = None;
+        self.load_lyrics();
+    }
+
+    pub fn set_lyrics_open(&mut self, open: bool) {
+        self.settings.lyrics_open = open;
+        self.save_settings();
+        if let Some(ui) = self.ui() {
+            ui.set_lyrics_open(open);
+        }
+        self.load_lyrics();
+    }
+
+    fn show_lyrics(&mut self, lines: Vec<String>, synced: bool, source: &str, status: &str) {
+        self.lyrics_line = None;
+        if let Some(ui) = self.ui() {
+            ui.set_lyrics_lines(model(lines.into_iter().map(SharedString::from).collect()));
+            ui.set_lyrics_synced(synced);
+            ui.set_lyrics_source(source.into());
+            ui.set_lyrics_status(status.into());
+            ui.set_lyrics_current(-1);
+        }
+        self.update_lyrics_line();
+    }
+
+    /// Finds lyrics for the current song when the lyrics panel is open.
+    fn load_lyrics(&mut self) {
+        if !self.settings.lyrics_open {
+            return;
+        }
+        let track = match self.current_item().cloned() {
+            Some(Item::Track(t)) => t,
+            Some(Item::Station(_)) => {
+                self.lyrics_for = None;
+                self.lyrics = None;
+                return self.show_lyrics(Vec::new(), false, "", "Lyrics aren't available for radio.");
+            }
+            None => {
+                self.lyrics_for = None;
+                self.lyrics = None;
+                return self.show_lyrics(Vec::new(), false, "", "Play a song to see its lyrics here.");
+            }
+        };
+        if self.lyrics_for.as_ref() == Some(&track.path) {
+            return; // already shown or being looked up
+        }
+        self.lyrics_for = Some(track.path.clone());
+        self.lyrics = None;
+        if self.episode_keys.contains_key(&track.path) {
+            return self.show_lyrics(Vec::new(), false, "", "Podcasts don't have lyrics.");
+        }
+        self.show_lyrics(Vec::new(), false, "", "Looking for lyrics…");
+        let (tx, db, online) = (self.bg_tx.clone(), self.paths.database.clone(), self.settings.lyrics_online);
+        thread::spawn(move || {
+            let (lyrics, failed) = find_lyrics(&track, &db, online);
+            let _ = tx.send(Bg::Lyrics { track: track.path, lyrics, failed });
+        });
+    }
+
+    fn on_lyrics(&mut self, track: PathBuf, found: Option<Lyrics>, failed: bool) {
+        if self.lyrics_for.as_ref() != Some(&track) {
+            return;
+        }
+        match found {
+            Some(l) if l.instrumental => {
+                self.show_lyrics(Vec::new(), false, "", "♪  Instrumental  ♪");
+            }
+            Some(l) => {
+                let lines: Vec<String> = l
+                    .lines
+                    .iter()
+                    .map(|x| if x.text.is_empty() && l.synced { "♪".to_string() } else { x.text.clone() })
+                    .collect();
+                let (synced, source) = (l.synced, l.source.clone());
+                self.lyrics = Some(l);
+                self.show_lyrics(lines, synced, &source, "");
+            }
+            None => {
+                let status = if failed {
+                    "Couldn't reach LRCLIB to look up lyrics. Check your internet connection."
+                } else if self.settings.lyrics_online {
+                    "No lyrics found for this song."
+                } else {
+                    "No lyrics found. Turn on \"Find lyrics online\" in Settings to look them up on LRCLIB."
+                };
+                self.show_lyrics(Vec::new(), false, "", status);
+            }
+        }
+    }
+
+    /// Highlights the line being sung.
+    fn update_lyrics_line(&mut self) {
+        let Some(l) = &self.lyrics else { return };
+        // A little ahead, so the highlight doesn't lag behind the voice.
+        let line = l.current_line(self.position + 0.2);
+        if line != self.lyrics_line {
+            self.lyrics_line = line;
+            if let Some(ui) = self.ui() {
+                ui.set_lyrics_current(line.map(|i| i as i32).unwrap_or(-1));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Podcasts
+    // ------------------------------------------------------------------
+
+    fn podcast_item(&mut self, show: &Show, cover: &Option<PathBuf>, info: String, subscribed: bool) -> PodcastItem {
+        let (image, has_image) = self.cover(cover);
+        PodcastItem {
+            title: show.title.as_str().into(),
+            author: show.author.as_str().into(),
+            info: info.into(),
+            image,
+            has_image,
+            subscribed,
+        }
+    }
+
+    fn refresh_podcasts(&mut self) {
+        self.podcasts = self.library.podcasts().unwrap_or_default();
+        let list = self.podcasts.clone();
+        let items: Vec<PodcastItem> = list
+            .iter()
+            .map(|p| {
+                let info = match p.unplayed {
+                    0 => String::new(),
+                    n => plural(n, "new episode", "new episodes"),
+                };
+                self.podcast_item(&p.show, &p.cover, info, true)
+            })
+            .collect();
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_shows(model(items));
+        }
+        self.show_podcast_results();
+    }
+
+    fn show_podcast_results(&mut self) {
+        let results = self.podcast_results.clone();
+        let items: Vec<PodcastItem> = results
+            .iter()
+            .map(|s| {
+                let subscribed = self.podcasts.iter().any(|p| p.show.feed_url == s.feed_url);
+                self.podcast_item(s, &None, s.description.clone(), subscribed)
+            })
+            .collect();
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_results(model(items));
+        }
+    }
+
+    fn set_podcast_status(&self, loading: bool, status: &str) {
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_loading(loading);
+            ui.set_podcast_status(status.into());
+        }
+    }
+
+    /// Searches the podcast directory, or reads a pasted RSS link.
+    pub fn podcast_search(&mut self, query: &str) {
+        let query = query.trim().to_string();
+        let request = self.podcast_request.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_view(0);
+            ui.set_podcast_searching(!query.is_empty());
+        }
+        self.podcast_feed = None;
+        if query.is_empty() {
+            self.podcast_results.clear();
+            self.show_podcast_results();
+            return self.set_podcast_status(false, "");
+        }
+        let is_link = query.starts_with("http://") || query.starts_with("https://");
+        self.set_podcast_status(true, if is_link { "Reading the feed…" } else { "Searching podcasts…" });
+        let tx = self.bg_tx.clone();
+        thread::spawn(move || {
+            let result = if is_link {
+                podcasts::fetch(&query).map(|feed| vec![feed.show])
+            } else {
+                podcasts::search(&query)
+            };
+            let _ = tx.send(Bg::PodcastResults { request, result: result.map_err(|e| format!("{e:#}")) });
+        });
+    }
+
+    fn on_podcast_results(&mut self, request: u64, result: Result<Vec<Show>, String>) {
+        if request != self.podcast_request.load(Ordering::SeqCst) {
+            return;
+        }
+        match result {
+            Ok(shows) => {
+                let status = if shows.is_empty() { String::new() } else { plural(shows.len(), "show", "shows") };
+                self.podcast_results = shows;
+                self.set_podcast_status(false, &status);
+            }
+            Err(e) => {
+                log(format!("podcasts: search failed: {e}"));
+                self.podcast_results.clear();
+                self.set_podcast_status(false, &format!("Couldn't search: {e}"));
+            }
+        }
+        self.show_podcast_results();
+    }
+
+    pub fn podcast_subscribe(&mut self, index: usize) {
+        let Some(show) = self.podcast_results.get(index).cloned() else { return };
+        if self.podcasts.iter().any(|p| p.show.feed_url == show.feed_url) {
+            if let Some(i) = self.podcasts.iter().position(|p| p.show.feed_url == show.feed_url) {
+                self.podcast_open(i);
+            }
+            return;
+        }
+        self.set_podcast_status(true, &format!("Subscribing to {}…", show.title));
+        let (tx, db, covers) = (self.bg_tx.clone(), self.paths.database.clone(), self.paths.covers.clone());
+        thread::spawn(move || {
+            let result = (|| -> anyhow::Result<String> {
+                let feed = podcasts::fetch(&show.feed_url)?;
+                let mut info = feed.show.clone();
+                if info.image_url.is_none() {
+                    info.image_url = show.image_url.clone();
+                }
+                let cover = info.image_url.as_deref().and_then(|url| save_podcast_cover(&covers, &info.feed_url, url));
+                let lib = Library::open(&db)?;
+                lib.subscribe_podcast(&info, cover.as_deref(), unix_now())?;
+                lib.save_episodes(&info.feed_url, &feed.episodes)?;
+                log(format!("podcasts: subscribed to {} ({} episodes)", info.title, feed.episodes.len()));
+                Ok(info.title)
+            })();
+            let _ = tx.send(Bg::PodcastSubscribed(result.map_err(|e| format!("{e:#}"))));
+        });
+    }
+
+    fn on_podcast_subscribed(&mut self, result: Result<String, String>) {
+        match result {
+            Ok(title) => {
+                self.set_podcast_status(false, "");
+                self.show_toast(&format!("Subscribed to {title}"));
+            }
+            Err(e) => {
+                log(format!("podcasts: subscribe failed: {e}"));
+                self.set_podcast_status(false, &format!("Couldn't subscribe: {e}"));
+            }
+        }
+        self.refresh_podcasts();
+    }
+
+    pub fn podcast_open(&mut self, index: usize) {
+        let Some(p) = self.podcasts.get(index).cloned() else { return };
+        self.podcast_feed = Some(p.show.feed_url.clone());
+        let (image, has_image) = self.cover(&p.cover);
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_title(p.show.title.as_str().into());
+            ui.set_podcast_author(p.show.author.as_str().into());
+            ui.set_podcast_description(p.show.description.as_str().into());
+            ui.set_podcast_image(image);
+            ui.set_podcast_has_image(has_image);
+            ui.set_podcast_view(1);
+        }
+        self.set_podcast_status(false, "");
+        self.reload_episodes();
+        self.podcast_refresh();
+    }
+
+    pub fn podcast_back(&mut self) {
+        self.podcast_feed = None;
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_view(0);
+        }
+        self.set_podcast_status(false, "");
+        self.refresh_podcasts();
+    }
+
+    fn reload_episodes(&mut self) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        self.podcast_episodes = self.library.episodes(&feed).unwrap_or_default();
+        let items: Vec<EpisodeItem> = self.podcast_episodes.iter().map(|e| self.episode_item(&feed, e)).collect();
+        if let Some(ui) = self.ui() {
+            ui.set_podcast_episodes(model(items));
+        }
+    }
+
+    fn episode_key(feed: &str, guid: &str) -> PathBuf {
+        PathBuf::from(format!("podcast://{}", unitn_core::util::md5_hex(format!("{feed}\n{guid}").as_bytes())))
+    }
+
+    fn episode_item(&self, feed: &str, e: &EpisodeState) -> EpisodeItem {
+        let ep = &e.episode;
+        let mut parts = Vec::new();
+        let date = podcasts::format_date(ep.published);
+        if !date.is_empty() {
+            parts.push(date);
+        }
+        if ep.duration > 0 {
+            parts.push(long_duration(ep.duration * 1000));
+        }
+        if e.played {
+            parts.push("Played".into());
+        } else if e.position > 0.0 && ep.duration > 0 {
+            let left = (ep.duration as f64 - e.position).max(0.0);
+            parts.push(format!("{} left", long_duration((left * 1000.0) as u64)));
+        }
+        EpisodeItem {
+            key: Self::episode_key(feed, &ep.guid).to_string_lossy().as_ref().into(),
+            title: ep.title.as_str().into(),
+            info: parts.join(" • ").into(),
+            played: e.played,
+            progress: if ep.duration > 0 { (e.position / ep.duration as f64) as f32 } else { 0.0 },
+        }
+    }
+
+    /// Reloads the open show's feed.
+    pub fn podcast_refresh(&mut self) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        self.set_podcast_status(true, "");
+        let (tx, db) = (self.bg_tx.clone(), self.paths.database.clone());
+        thread::spawn(move || {
+            let result = refresh_feed(&db, &feed);
+            let _ = tx.send(Bg::PodcastRefreshed { feed, result: result.map_err(|e| format!("{e:#}")) });
+        });
+    }
+
+    /// Checks every subscription for new episodes (at startup).
+    fn refresh_all_podcasts(&self) {
+        let feeds: Vec<String> = self.podcasts.iter().map(|p| p.show.feed_url.clone()).collect();
+        if feeds.is_empty() {
+            return;
+        }
+        let (tx, db) = (self.bg_tx.clone(), self.paths.database.clone());
+        thread::spawn(move || {
+            for feed in feeds {
+                let result = refresh_feed(&db, &feed);
+                let _ = tx.send(Bg::PodcastRefreshed { feed, result: result.map_err(|e| format!("{e:#}")) });
+            }
+        });
+    }
+
+    fn on_podcast_refreshed(&mut self, feed: String, result: Result<(), String>) {
+        let open = self.podcast_feed.as_deref() == Some(feed.as_str());
+        if let Err(e) = &result {
+            log(format!("podcasts: refreshing {feed} failed: {e}"));
+        }
+        if open {
+            match result {
+                Ok(()) => self.set_podcast_status(false, ""),
+                Err(e) => self.set_podcast_status(false, &format!("Couldn't refresh: {e}")),
+            }
+            self.reload_episodes();
+        } else {
+            self.refresh_podcasts();
+        }
+    }
+
+    pub fn podcast_unsubscribe(&mut self) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        let title = self.podcasts.iter().find(|p| p.show.feed_url == feed).map(|p| p.show.title.clone()).unwrap_or_default();
+        if let Err(e) = self.library.unsubscribe_podcast(&feed) {
+            return self.show_toast(&format!("Could not unsubscribe: {e}"));
+        }
+        self.show_toast(&format!("Unsubscribed from {title}"));
+        self.podcast_back();
+    }
+
+    pub fn podcast_play(&mut self, index: usize) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        let Some(state) = self.podcast_episodes.get(index).cloned() else { return };
+        let Some(show) = self.podcasts.iter().find(|p| p.show.feed_url == feed).cloned() else { return };
+        let ep = &state.episode;
+        let key = Self::episode_key(&feed, &ep.guid);
+        self.episode_keys.insert(key.clone(), (feed.clone(), ep.guid.clone()));
+        let track = Track {
+            path: key.clone(),
+            title: ep.title.clone(),
+            artist: show.show.title.clone(),
+            album: show.show.title.clone(),
+            album_artist: show.show.title.clone(),
+            duration_ms: ep.duration * 1000,
+            cover: show.cover.clone(),
+            stream_url: Some(ep.audio_url.clone()),
+            stream_ext: ep.extension(),
+            ..Default::default()
+        };
+        // Continue where it was left (unless it was finished).
+        self.resume_at = (!state.played && state.position > 10.0).then(|| (key, state.position));
+        self.episode_saved_at = if self.resume_at.is_some() { state.position } else { 0.0 };
+        self.play_tracks(vec![track], 0, false);
+    }
+
+    /// Seeks to the saved position once a resumed episode is playing.
+    fn resume_episode(&mut self) {
+        let Some((key, position)) = self.resume_at.take() else { return };
+        if matches!(self.current_item(), Some(Item::Track(t)) if t.path == key) {
+            log(format!("podcasts: resuming at {position:.0} s"));
+            self.player.seek(position);
+            self.show_toast(&format!("Continuing at {}", format_time(position)));
+        }
+    }
+
+    /// Remembers how far the current episode got (every 15 s and at the end).
+    fn track_episode_progress(&mut self) {
+        if self.resume_at.is_some() {
+            return; // not at the saved position yet
+        }
+        let Some(Item::Track(t)) = self.current_item() else { return };
+        let Some((feed, guid)) = self.episode_keys.get(&t.path).cloned() else { return };
+        let duration = self.duration.unwrap_or(0.0);
+        let played = duration > 60.0 && self.position >= duration - 30.0;
+        if (self.position - self.episode_saved_at).abs() < 15.0 && !played {
+            return;
+        }
+        if played && self.episode_saved_at >= duration - 30.0 {
+            return; // already marked as played
+        }
+        self.episode_saved_at = self.position;
+        if let Err(e) = self.library.set_episode_progress(&feed, &guid, self.position, played) {
+            log(format!("podcasts: could not save progress: {e:#}"));
+        }
+        if self.podcast_feed.as_deref() == Some(feed.as_str()) {
+            if let Some(i) = self.podcast_episodes.iter().position(|e| e.episode.guid == guid) {
+                self.podcast_episodes[i].position = self.position;
+                self.podcast_episodes[i].played = played;
+                let item = self.episode_item(&feed, &self.podcast_episodes[i]);
+                if let Some(ui) = self.ui() {
+                    let m = ui.get_podcast_episodes();
+                    if i < m.row_count() {
+                        m.set_row_data(i, item);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2815,6 +3331,15 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_remove_server, |a, i| a.remove_server(i.max(0) as usize));
     on!(on_connect_server, |a, kind, url, user, secret| a.connect_server(kind, url.to_string(), user.to_string(), secret.to_string()));
     on!(on_close_server_dialog, |a| a.close_server_dialog());
+    on!(on_crossfade_changed, |a, secs| a.set_crossfade(secs));
+    on!(on_lyrics_online_changed, |a, on| a.set_lyrics_online(on));
+    on!(on_lyrics_open_changed, |a, open| a.set_lyrics_open(open));
+    on!(on_podcast_subscribe, |a, i| a.podcast_subscribe(i.max(0) as usize));
+    on!(on_podcast_open, |a, i| a.podcast_open(i.max(0) as usize));
+    on!(on_podcast_back, |a| a.podcast_back());
+    on!(on_podcast_refresh, |a| a.podcast_refresh());
+    on!(on_podcast_unsubscribe, |a| a.podcast_unsubscribe());
+    on!(on_podcast_play, |a, i| a.podcast_play(i.max(0) as usize));
     on!(on_fix_search, |a, artist, album| a.fix_search(artist.to_string(), album.to_string()));
     on!(on_fix_select, |a, i| a.fix_select(i.max(0) as usize));
     on!(on_fix_save, |a, artist, album| a.fix_save(artist.to_string(), album.to_string()));
@@ -2887,6 +3412,16 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     {
         let app = app.clone();
         let timer = Rc::new(Timer::default());
+        ui.on_podcast_search(move |text| {
+            let app = app.clone();
+            timer.start(TimerMode::SingleShot, Duration::from_millis(500), move || {
+                with(&app, |a| a.podcast_search(text.as_str()));
+            });
+        });
+    }
+    {
+        let app = app.clone();
+        let timer = Rc::new(Timer::default());
         ui.on_radio_search(move |text| {
             let app = app.clone();
             timer.start(TimerMode::SingleShot, Duration::from_millis(400), move || {
@@ -2920,4 +3455,72 @@ fn open_in_browser(url: &str) -> bool {
             false
         }
     }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+/// Cache key for a song's lyrics.
+fn lyrics_key(t: &Track) -> String {
+    format!("{}\u{1f}{}\u{1f}{}", t.artist.to_lowercase(), t.title.to_lowercase(), t.duration_ms / 1000)
+}
+
+/// Looks for lyrics: next to the file or in its tags, then the cache, then
+/// LRCLIB. Runs on a worker thread. Returns the lyrics and whether an online
+/// lookup failed.
+fn find_lyrics(track: &Track, db: &Path, online: bool) -> (Option<Lyrics>, bool) {
+    if !track.is_remote() {
+        if let Some(l) = lyrics::local(&track.path) {
+            return (Some(l), false);
+        }
+    }
+    let key = lyrics_key(track);
+    let lib = Library::open(db).ok();
+    if let Some(lib) = &lib {
+        match lib.cached_lyrics(&key, unix_now()) {
+            Ok(Some(Some((_, source)))) if source == "instrumental" => return (Some(Lyrics::instrumental("LRCLIB")), false),
+            Ok(Some(Some((body, source)))) => return (lyrics::parse(&body, &source), false),
+            Ok(Some(None)) => return (None, false),
+            _ => {}
+        }
+    }
+    if !online {
+        return (None, false);
+    }
+    match lyrics::lrclib(&track.artist, &track.title, &track.album, track.duration_secs()) {
+        Ok(found) => {
+            if let Some(lib) = &lib {
+                let _ = match &found {
+                    Some(l) if l.instrumental => lib.cache_lyrics(&key, Some(""), "instrumental", unix_now()),
+                    Some(l) => lib.cache_lyrics(&key, Some(&l.to_text()), &l.source, unix_now()),
+                    None => lib.cache_lyrics(&key, None, "", unix_now()),
+                };
+            }
+            log(format!("lyrics: LRCLIB {} \"{} - {}\"", if found.is_some() { "found" } else { "has nothing for" }, track.artist, track.title));
+            (found, false)
+        }
+        Err(e) => {
+            log(format!("lyrics: LRCLIB lookup failed: {e:#}"));
+            (None, true)
+        }
+    }
+}
+
+/// Downloads a show's artwork into the covers folder.
+fn save_podcast_cover(covers: &Path, feed: &str, url: &str) -> Option<PathBuf> {
+    let data = servers::fetch_image(url).map_err(|e| log(format!("podcasts: artwork failed: {e:#}"))).ok()?;
+    let ext = if data.starts_with(&[0x89, b'P', b'N', b'G']) { "png" } else { "jpg" };
+    std::fs::create_dir_all(covers).ok()?;
+    let path = covers.join(format!("podcast-{}.{ext}", unitn_core::util::md5_hex(feed.as_bytes())));
+    std::fs::write(&path, data).ok()?;
+    Some(path)
+}
+
+/// Reloads a feed and stores its episodes (worker thread).
+fn refresh_feed(db: &Path, feed_url: &str) -> anyhow::Result<()> {
+    let feed = podcasts::fetch(feed_url)?;
+    let lib = Library::open(db)?;
+    lib.save_episodes(feed_url, &feed.episodes)?;
+    Ok(())
 }

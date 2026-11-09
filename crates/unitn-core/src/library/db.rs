@@ -71,6 +71,34 @@ CREATE TABLE IF NOT EXISTS remote_tracks (
     stream_ext   TEXT,
     stream_ref   TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS lyrics (
+    key     TEXT PRIMARY KEY,
+    body    TEXT,
+    source  TEXT NOT NULL DEFAULT '',
+    fetched INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS podcasts (
+    feed_url    TEXT PRIMARY KEY,
+    title       TEXT NOT NULL DEFAULT '',
+    author      TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    image_url   TEXT,
+    cover       TEXT,
+    added       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    feed_url    TEXT NOT NULL,
+    guid        TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT '',
+    published   INTEGER NOT NULL DEFAULT 0,
+    duration    INTEGER NOT NULL DEFAULT 0,
+    audio_url   TEXT NOT NULL DEFAULT '',
+    mime        TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    position    REAL NOT NULL DEFAULT 0,
+    played      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (feed_url, guid)
+);
 CREATE TABLE IF NOT EXISTS stations (
     uuid    TEXT PRIMARY KEY,
     name    TEXT NOT NULL,
@@ -111,6 +139,24 @@ fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
         cover: r.get::<_, Option<String>>(11)?.map(PathBuf::from),
         ..Default::default()
     })
+}
+
+/// A subscribed podcast.
+#[derive(Debug, Clone)]
+pub struct Podcast {
+    pub show: crate::podcasts::Show,
+    /// Downloaded artwork.
+    pub cover: Option<PathBuf>,
+    /// Episodes not started yet.
+    pub unplayed: usize,
+}
+
+/// An episode and how far it was listened to.
+#[derive(Debug, Clone)]
+pub struct EpisodeState {
+    pub episode: crate::podcasts::Episode,
+    pub position: f64,
+    pub played: bool,
 }
 
 const REMOTE_COLS: &str =
@@ -508,6 +554,150 @@ impl Library {
         Ok(found)
     }
 
+    // ---------------- Lyrics cache ----------------
+
+    /// Cached lyrics: `Some(Some(text))` found, `Some(None)` looked up but
+    /// none exist (cached for a week), `None` not looked up yet.
+    pub fn cached_lyrics(&self, key: &str, now: i64) -> Result<Option<Option<(String, String)>>> {
+        let mut st = self.conn.prepare_cached("SELECT body, source, fetched FROM lyrics WHERE key = ?1")?;
+        let row = st
+            .query_map(params![key], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+            .next()
+            .transpose()?;
+        Ok(match row {
+            Some((Some(body), source, _)) => Some(Some((body, source))),
+            Some((None, _, fetched)) if now - fetched < 7 * 86400 => Some(None),
+            _ => None,
+        })
+    }
+
+    pub fn cache_lyrics(&self, key: &str, body: Option<&str>, source: &str, now: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO lyrics (key, body, source, fetched) VALUES (?1, ?2, ?3, ?4)",
+            params![key, body, source, now],
+        )?;
+        Ok(())
+    }
+
+    // ---------------- Podcasts ----------------
+
+    pub fn subscribe_podcast(&self, show: &crate::podcasts::Show, cover: Option<&Path>, now: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO podcasts (feed_url, title, author, description, image_url, cover, added)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(feed_url) DO UPDATE SET title = excluded.title, author = excluded.author,
+               description = excluded.description, image_url = excluded.image_url,
+               cover = COALESCE(excluded.cover, podcasts.cover)",
+            params![show.feed_url, show.title, show.author, show.description, show.image_url, cover.map(path_str), now],
+        )?;
+        Ok(())
+    }
+
+    pub fn unsubscribe_podcast(&self, feed_url: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM podcast_episodes WHERE feed_url = ?1", params![feed_url])?;
+        self.conn.execute("DELETE FROM podcasts WHERE feed_url = ?1", params![feed_url])?;
+        Ok(())
+    }
+
+    /// Subscribed shows, by title.
+    pub fn podcasts(&self) -> Result<Vec<Podcast>> {
+        let mut st = self.conn.prepare(
+            "SELECT p.feed_url, p.title, p.author, p.description, p.image_url, p.cover,
+                    (SELECT COUNT(*) FROM podcast_episodes e WHERE e.feed_url = p.feed_url AND e.played = 0 AND e.position = 0)
+             FROM podcasts p ORDER BY p.title COLLATE NOCASE",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(Podcast {
+                show: crate::podcasts::Show {
+                    feed_url: r.get(0)?,
+                    title: r.get(1)?,
+                    author: r.get(2)?,
+                    description: r.get(3)?,
+                    image_url: r.get(4)?,
+                },
+                cover: r.get::<_, Option<String>>(5)?.map(PathBuf::from),
+                unplayed: r.get::<_, i64>(6)?.max(0) as usize,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn is_subscribed(&self, feed_url: &str) -> Result<bool> {
+        let n: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM podcasts WHERE feed_url = ?1", params![feed_url], |r| r.get(0))?;
+        Ok(n > 0)
+    }
+
+    /// Stores a feed's episodes, keeping how far each was listened to.
+    pub fn save_episodes(&self, feed_url: &str, episodes: &[crate::podcasts::Episode]) -> Result<()> {
+        self.conn.execute_batch("SAVEPOINT save_episodes")?;
+        let result = (|| -> Result<()> {
+            let mut st = self.conn.prepare_cached(
+                "INSERT INTO podcast_episodes (feed_url, guid, title, published, duration, audio_url, mime, description)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(feed_url, guid) DO UPDATE SET title = excluded.title, published = excluded.published,
+                   duration = excluded.duration, audio_url = excluded.audio_url, mime = excluded.mime,
+                   description = excluded.description",
+            )?;
+            for e in episodes {
+                st.execute(params![
+                    feed_url,
+                    e.guid,
+                    e.title,
+                    e.published,
+                    e.duration as i64,
+                    e.audio_url,
+                    e.mime,
+                    e.description
+                ])?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("RELEASE save_episodes")?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK TO save_episodes; RELEASE save_episodes");
+                Err(e)
+            }
+        }
+    }
+
+    /// A show's episodes, newest first.
+    pub fn episodes(&self, feed_url: &str) -> Result<Vec<EpisodeState>> {
+        let mut st = self.conn.prepare(
+            "SELECT guid, title, published, duration, audio_url, mime, description, position, played
+             FROM podcast_episodes WHERE feed_url = ?1 ORDER BY published DESC, rowid ASC LIMIT 500",
+        )?;
+        let rows = st.query_map(params![feed_url], |r| {
+            Ok(EpisodeState {
+                episode: crate::podcasts::Episode {
+                    guid: r.get(0)?,
+                    title: r.get(1)?,
+                    published: r.get(2)?,
+                    duration: r.get::<_, i64>(3)?.max(0) as u64,
+                    audio_url: r.get(4)?,
+                    mime: r.get(5)?,
+                    description: r.get(6)?,
+                },
+                position: r.get(7)?,
+                played: r.get::<_, i64>(8)? != 0,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Remembers how far an episode was listened to.
+    pub fn set_episode_progress(&self, feed_url: &str, guid: &str, position: f64, played: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE podcast_episodes SET position = ?3, played = ?4 WHERE feed_url = ?1 AND guid = ?2",
+            params![feed_url, guid, position.max(0.0), played as i64],
+        )?;
+        Ok(())
+    }
+
     pub fn add_to_playlist(&self, id: i64, paths: &[PathBuf]) -> Result<()> {
         let mut all = self.playlist_paths(id)?;
         all.extend_from_slice(paths);
@@ -719,6 +909,42 @@ mod tests {
             duration_ms: 1000,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn caches_lyrics() {
+        let lib = Library::open_in_memory().unwrap();
+        assert_eq!(lib.cached_lyrics("k", 100).unwrap(), None);
+        lib.cache_lyrics("k", Some("[00:01.00]Hi"), "LRCLIB", 100).unwrap();
+        assert_eq!(lib.cached_lyrics("k", 200).unwrap(), Some(Some(("[00:01.00]Hi".into(), "LRCLIB".into()))));
+        lib.cache_lyrics("none", None, "", 100).unwrap();
+        assert_eq!(lib.cached_lyrics("none", 200).unwrap(), Some(None));
+        // "Not found" is retried after a week.
+        assert_eq!(lib.cached_lyrics("none", 100 + 8 * 86400).unwrap(), None);
+    }
+
+    #[test]
+    fn keeps_podcasts_and_progress() {
+        use crate::podcasts::{Episode, Show};
+        let lib = Library::open_in_memory().unwrap();
+        let show = Show { feed_url: "https://f/1".into(), title: "Show".into(), ..Default::default() };
+        lib.subscribe_podcast(&show, None, 1).unwrap();
+        assert!(lib.is_subscribed("https://f/1").unwrap());
+        let ep = |g: &str, t: i64| Episode { guid: g.into(), title: g.into(), published: t, audio_url: "u".into(), ..Default::default() };
+        lib.save_episodes("https://f/1", &[ep("a", 10), ep("b", 20)]).unwrap();
+        assert_eq!(lib.podcasts().unwrap()[0].unplayed, 2);
+        lib.set_episode_progress("https://f/1", "a", 125.5, false).unwrap();
+        // A refresh keeps the progress and adds new episodes.
+        lib.save_episodes("https://f/1", &[ep("a", 10), ep("b", 20), ep("c", 30)]).unwrap();
+        let eps = lib.episodes("https://f/1").unwrap();
+        assert_eq!(eps.iter().map(|e| e.episode.guid.as_str()).collect::<Vec<_>>(), vec!["c", "b", "a"]);
+        assert_eq!(eps[2].position, 125.5);
+        assert_eq!(lib.podcasts().unwrap()[0].unplayed, 2);
+        lib.set_episode_progress("https://f/1", "b", 0.0, true).unwrap();
+        assert!(lib.episodes("https://f/1").unwrap()[1].played);
+        lib.unsubscribe_podcast("https://f/1").unwrap();
+        assert!(lib.podcasts().unwrap().is_empty());
+        assert!(lib.episodes("https://f/1").unwrap().is_empty());
     }
 
     #[test]

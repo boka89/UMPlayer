@@ -115,4 +115,8 @@ echo "albums indexed: ${n:-?}"
 echo "::endgroup::"
 cargo run --release -q -p unitn-core --example server_check -- subsonic localhost unitn secret123 || status=1
 
+# ---------------- Lyrics (LRCLIB) and podcasts (Apple directory + a real feed) ----------------
+cargo run --release -q -p unitn-core --example lyrics_check -- "Queen" "Bohemian Rhapsody" "A Night at the Opera" 355 || status=1
+cargo run --release -q -p unitn-core --example podcast_check -- "NASA" || status=1
+
 exit $status

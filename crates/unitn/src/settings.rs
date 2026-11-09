@@ -61,13 +61,19 @@ pub struct Settings {
     /// name: 0.3.1 stored "glass" and its blur hid the whole window.
     #[serde(rename = "frosted_glass")]
     pub glass: bool,
-    /// Connected Jellyfin / Plex servers.
+    /// Connected music servers.
     pub servers: Vec<unitn_core::servers::ServerConfig>,
+    /// Crossfade between songs in seconds (0 = off, gapless).
+    pub crossfade: i32,
+    /// Look up lyrics on LRCLIB when there are none locally.
+    pub lyrics_online: bool,
+    /// The lyrics panel is shown on Now Playing.
+    pub lyrics_open: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: THEME_SYSTEM, volume: 0.8, shuffle: false, repeat: 0, opacity: 1.0, viz_style: 0, download_art: true, compact_lists: false, eq_enabled: false, eq_gains: [0.0; 10], eq_preset: 0, eq_preamp: 0.0, eq_open: false, glass: false, servers: Vec::new() }
+        Self { theme: THEME_SYSTEM, volume: 0.8, shuffle: false, repeat: 0, opacity: 1.0, viz_style: 0, download_art: true, compact_lists: false, eq_enabled: false, eq_gains: [0.0; 10], eq_preset: 0, eq_preamp: 0.0, eq_open: false, glass: false, servers: Vec::new(), crossfade: 0, lyrics_online: true, lyrics_open: false }
     }
 }
 
