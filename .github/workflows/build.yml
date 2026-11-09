@@ -60,6 +60,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg jq
           .github/scripts/servers-check.sh
 
+      - name: Windows exe icon check
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Type @"
+          using System; using System.Runtime.InteropServices;
+          public static class Res {
+            [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryEx(string f, IntPtr h, uint flags);
+            [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr FindResource(IntPtr h, IntPtr name, IntPtr type);
+          }
+          "@
+          $exe = Join-Path $PWD "target\release\unitn.exe"
+          $h = [Res]::LoadLibraryEx($exe, [IntPtr]::Zero, 2)
+          $r = [Res]::FindResource($h, [IntPtr]1, [IntPtr]14)   # icon group 1
+          if ($r -eq [IntPtr]::Zero) { Write-Host "RESULT exe icon: MISSING"; exit 1 }
+          Write-Host "RESULT exe icon: OK"
+
       - name: Windows startup smoke test
         if: runner.os == 'Windows'
         shell: bash
