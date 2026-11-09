@@ -1086,6 +1086,8 @@ export component IdleArea inherits TouchArea {
 
     function poke() {
         root.active = true;
+        // (Re)start the countdown from now.
+        idle.running = true;
         idle.restart();
     }
     changed mouse-x => { root.poke(); }

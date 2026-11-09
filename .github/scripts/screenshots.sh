@@ -100,6 +100,9 @@ run_theme() { # theme-number name
   shot "$2-nowplaying"
   xdotool mousemove 900 480; sleep 0.8   # mouse over the visualizer: its buttons appear
   shot "$2-nowplaying-controls"
+  sleep 3.2
+  shot "$2-nowplaying-idle"  # mouse resting: the buttons are gone again
+  xdotool mousemove 1215 326; sleep 0.6
   click 1221 326 3         # full screen button (the buttons fade out when the mouse rests)
   shot "$2-viz-0"
   xdotool mousemove 700 400; sleep 0.6
