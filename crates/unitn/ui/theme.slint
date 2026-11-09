@@ -1,0 +1,33 @@
+// Colors and sizes for the dark and light themes.
+
+export global Theme {
+    // 0 = follow system, 1 = light, 2 = dark
+    in-out property <int> mode: 0;
+    in-out property <bool> system-dark: true;
+    out property <bool> dark: mode == 0 ? system-dark : mode == 2;
+    /// "Cozy" song lists: tighter rows (false = "Comfy").
+    in-out property <bool> compact: false;
+    /// Window opacity, 0.5 (see-through) .. 1.0 (solid).
+    in-out property <float> opacity: 1.0;
+    /// Frosted glass (macOS blur) behind the window: always a little see-through.
+    in-out property <bool> glass: false;
+    /// How see-through the transparency setting makes the window.
+    out property <float> user-see-through: 1.0 - Math.max(0.5, Math.min(1.0, opacity));
+    out property <float> see-through: glass ? Math.max(0.3, user-see-through) : user-see-through;
+
+    out property <color> bg: dark ? #0f0f13 : #f6f6f9;
+    out property <color> sidebar: dark ? #15151b : #ededf2;
+    out property <color> bar: dark ? #17171e : #ffffff;
+    out property <color> surface: dark ? #1d1d25 : #ffffff;
+    out property <color> surface-hover: dark ? #272731 : #e6e6ee;
+    out property <color> border: dark ? #2b2b36 : #dadae3;
+    out property <color> fg: dark ? #f3f3f6 : #16161b;
+    out property <color> fg-muted: dark ? #9a9aa9 : #686876;
+    out property <color> accent: dark ? #8f72ff : #6a46f5;
+    out property <color> accent-hover: dark ? #a48cff : #5a36e6;
+    out property <color> accent-soft: dark ? #8f72ff26 : #6a46f51c;
+    out property <color> on-accent: #ffffff;
+    out property <color> danger: #e5484d;
+
+    out property <length> radius: 10px;
+}

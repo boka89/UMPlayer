@@ -1,0 +1,165 @@
+name: Release
+
+# Builds installers for every platform and publishes them as a GitHub Release.
+# Two ways to release:
+#   - push a tag like `v0.2.0`, or
+#   - Actions tab -> Release -> "Run workflow" and enter the version (e.g. v0.2.0).
+# Running it manually with an empty version only builds the installers (test run).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.2.0 (leave empty for a test build only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  meta:
+    name: Release version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        shell: bash
+        env:
+          INPUT: ${{ inputs.version }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          v="${INPUT//[[:space:]]/}"
+          if [[ "$REF" == refs/tags/v* ]]; then v="$REF_NAME"; fi
+          # Accept "0.2.0" as well as "v0.2.0".
+          if [[ -n "$v" && "$v" != v* ]]; then v="v$v"; fi
+          echo "tag=$v" >> "$GITHUB_OUTPUT"
+          if [[ -n "$v" ]]; then
+            echo "::notice::Will publish release $v"
+          else
+            echo "::notice::Test build only - no version was entered, nothing will be published"
+          fi
+
+  package:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-22.04
+            formats: deb,appimage
+          - name: Windows x64
+            os: windows-latest
+            formats: nsis
+          - name: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            formats: dmg
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            formats: dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libfuse2 file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: release-${{ matrix.name }}
+
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p unitn $TARGET_FLAG
+
+      - name: Build installers
+        shell: bash
+        working-directory: crates/unitn
+        run: cargo packager --release --formats ${{ matrix.formats }} $TARGET_FLAG
+
+      - name: Portable archives
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            Linux)
+              tar -C target/release -czf "dist/Unitn_${VERSION}_linux_x64_portable.tar.gz" unitn ;;
+            Windows)
+              7z a "dist/Unitn_${VERSION}_windows_x64_portable.zip" ./target/release/unitn.exe ;;
+          esac
+          # Keep only the files users download.
+          find dist -mindepth 1 -maxdepth 1 ! \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' \
+            -o -name '*.AppImage' -o -name '*.zip' -o -name '*.tar.gz' \) -exec rm -rf {} +
+          ls -la dist
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: installers-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [meta, package]
+    if: needs.meta.outputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: installers-*
+          merge-multiple: true
+
+      - run: ls -la dist
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Unitn player ${{ needs.meta.outputs.tag }}
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Downloads
+
+            | System | File |
+            |---|---|
+            | **Windows** 10/11 | `unitn_*_x64-setup.exe` (installer) or `Unitn_*_windows_x64_portable.zip` |
+            | **macOS** Apple Silicon (M1 and newer) | `Unitn_*_aarch64.dmg` |
+            | **macOS** Intel | `Unitn_*_x64.dmg` |
+            | **Linux** Debian/Ubuntu | `unitn_*_amd64.deb` |
+            | **Linux** any distro | `unitn_*_x86_64.AppImage` or `Unitn_*_linux_x64_portable.tar.gz` |
+
+            > The builds are not signed with paid certificates yet. **macOS**: the first time, right-click
+            > Unitn → Open (or System Settings → Privacy & Security → "Open Anyway"). If macOS says the
+            > app "is damaged", run `xattr -cr /Applications/Unitn.app` in Terminal once.
+            > **Windows**: SmartScreen may warn; click "More info" → "Run anyway".

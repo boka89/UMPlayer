@@ -1,0 +1,44 @@
+[package]
+name = "unitn"
+description = "Unitn player - a modern, open-source music player for local files and internet radio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors = ["Unitn contributors"]
+homepage = "https://github.com/boka89/Unitn"
+
+[dependencies]
+unitn-core = { path = "../unitn-core" }
+anyhow = "1"
+directories = "5"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slint = { version = "1.8", features = ["unstable-winit-030"] }
+souvlaki = { version = "0.7", default-features = false, features = ["use_zbus"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
+[build-dependencies]
+slint-build = "1.8"
+
+# Installers are built with cargo-packager (see .github/workflows/release.yml).
+[package.metadata.packager]
+product-name = "Unitn"
+identifier = "net.bokors.unitn"
+publisher = "Unitn contributors"
+category = "Music"
+copyright = "Copyright (c) Unitn contributors. GPL-3.0-or-later."
+out-dir = "../../dist"
+icons = ["icons/32x32.png", "icons/128x128.png", "icons/256x256.png", "icons/icon.icns", "icons/icon.ico"]
+binaries = [{ path = "unitn", main = true }]
+
+[package.metadata.packager.deb]
+depends = ["libasound2 | libasound2t64"]
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+# Ad-hoc signature ("-"): no Apple developer account needed, lets macOS offer "Open Anyway".
+signing-identity = "-"

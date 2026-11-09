@@ -1,0 +1,126 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            binary: unitn
+          - name: Windows
+            os: windows-latest
+            binary: unitn.exe
+          - name: macOS
+            os: macos-latest
+            binary: unitn
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.2
+
+      - name: Test core
+        run: cargo test -p unitn-core --locked
+
+      - name: Build release
+        run: cargo build --release --workspace --locked
+
+      - name: Radio stream check
+        if: runner.os == 'Linux'
+        run: cargo run --release -p unitn-core --example radio_check -- --top 25 https://oxygenmusic.hu:8443/oxygenmusic
+
+      - name: Jellyfin and Plex server check
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends ffmpeg jq
+          .github/scripts/servers-check.sh
+
+      - name: Windows startup smoke test
+        if: runner.os == 'Windows'
+        shell: bash
+        run: .github/scripts/windows-smoke.sh
+
+      - name: macOS playback smoke test
+        if: runner.os == 'macOS'
+        run: .github/scripts/macos-smoke.sh
+
+      - name: Screenshots
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb xdotool imagemagick ffmpeg mesa-utils libgl1-mesa-dri pulseaudio pulseaudio-utils libasound2-plugins fonts-inter
+          # Use Inter (close to macOS's San Francisco) as the UI font, like a real desktop would.
+          mkdir -p ~/.config/fontconfig
+          printf '%s\n' '<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
+            '<fontconfig><alias><family>sans-serif</family><prefer><family>Inter</family></prefer></alias>' \
+            '<alias><family>system-ui</family><prefer><family>Inter</family></prefer></alias></fontconfig>' \
+            > ~/.config/fontconfig/fonts.conf
+          fc-cache -f >/dev/null; fc-match sans-serif
+          .github/scripts/screenshots.sh
+
+      - name: Upload screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: screenshots
+          path: screenshots/
+
+      - name: Publish screenshots to the ci-screenshots branch
+        if: runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        run: |
+          set -e
+          dir=$(mktemp -d)
+          cp -r screenshots "$dir/" && cp Cargo.lock "$dir/"
+          cd "$dir"
+          git init -q -b ci-screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "Screenshots for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
+
+      - name: Publish macOS window screenshots to the ci-mac-screenshots branch
+        if: runner.os == 'macOS' && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        run: |
+          set -e
+          [ -d mac-screenshots ] || exit 0
+          dir=$(mktemp -d)
+          cp -r mac-screenshots "$dir/"
+          cd "$dir"
+          git init -q -b ci-mac-screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "macOS screenshots for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-mac-screenshots
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v6
+        with:
+          name: unitn-${{ matrix.name }}
+          path: |
+            target/release/${{ matrix.binary }}
+            Cargo.lock
+          if-no-files-found: error

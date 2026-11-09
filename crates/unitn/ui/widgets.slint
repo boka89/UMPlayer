@@ -1,0 +1,1104 @@
+// Small reusable controls styled with the Theme.
+
+import { Theme } from "theme.slint";
+
+export struct AlbumItem {
+    title: string,
+    artist: string,
+    year: string,
+    cover: image,
+    has-cover: bool,
+}
+
+export struct TrackItem {
+    key: string,
+    number: string,
+    title: string,
+    artist: string,
+    album: string,
+    duration: string,
+}
+
+export struct ArtistItem {
+    name: string,
+    info: string,
+    initial: string,
+}
+
+export struct StationItem {
+    key: string,
+    name: string,
+    info: string,
+    initial: string,
+    favorite: bool,
+}
+
+export struct FixCandidate {
+    title: string,
+    info: string,
+    thumb: image,
+    has-thumb: bool,
+}
+
+export struct ServerItem {
+    name: string,
+    info: string,
+}
+
+export struct PlaylistItem {
+    name: string,
+    info: string,
+}
+
+export struct QueueEntry {
+    title: string,
+    subtitle: string,
+    duration: string,
+    current: bool,
+    radio: bool,
+}
+
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <length> size: 36px;
+    in property <length> icon-size: 20px;
+    in property <bool> active: false;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <color> tint: Theme.fg;
+    callback clicked;
+
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    opacity: enabled ? 1.0 : 0.4;
+    background: primary
+        ? (touch.pressed ? Theme.accent : touch.has-hover ? Theme.accent-hover : Theme.accent)
+        : (touch.pressed ? Theme.border : touch.has-hover ? Theme.surface-hover : transparent);
+    animate background { duration: 120ms; }
+
+    Image {
+        source: root.icon;
+        width: root.icon-size;
+        height: root.icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: root.primary ? Theme.on-accent : (root.active ? Theme.accent : root.tint);
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PillButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon: true;
+    in property <bool> primary: false;
+    callback clicked;
+
+    height: 38px;
+    border-radius: 19px;
+    background: primary
+        ? (touch.has-hover ? Theme.accent-hover : Theme.accent)
+        : (touch.has-hover ? Theme.surface-hover : Theme.surface);
+    border-width: primary ? 0px : 1px;
+    border-color: Theme.border;
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: root.has-icon ? 14px : 18px;
+        padding-right: 18px;
+        spacing: 8px;
+        if root.has-icon: VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                colorize: root.primary ? Theme.on-accent : Theme.fg;
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.primary ? Theme.on-accent : Theme.fg;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 32px;
+    border-radius: 16px;
+    background: selected ? Theme.accent : (touch.has-hover ? Theme.surface-hover : Theme.surface);
+    border-width: selected ? 0px : 1px;
+    border-color: Theme.border;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: root.text;
+            color: root.selected ? Theme.on-accent : Theme.fg;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 38px;
+    border-radius: 8px;
+    background: selected ? Theme.surface-hover : (touch.has-hover ? Theme.surface : transparent);
+    animate background { duration: 120ms; }
+
+    // Accent marker for the selected page.
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: root.selected ? 18px : 0px;
+        border-radius: 2px;
+        background: Theme.accent;
+        animate height { duration: 150ms; }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 12px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 18px;
+                height: 18px;
+                colorize: root.selected ? Theme.accent : Theme.fg-muted;
+            }
+        }
+        Text {
+            text: root.label;
+            color: root.selected ? Theme.fg : Theme.fg-muted;
+            font-size: 14px;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Horizontal slider used for seeking and volume (value 0..1).
+export component SeekBar inherits Rectangle {
+    in property <float> value;
+    in property <bool> enabled: true;
+    /// Final value, when the mouse button is released.
+    callback changed(float);
+    /// Live value while dragging.
+    callback moved(float);
+
+    property <float> dragged: Math.max(0, Math.min(1, touch.mouse-x / root.width));
+    property <float> shown: touch.pressed ? dragged : Math.max(0, Math.min(1, value));
+    property <bool> hot: enabled && (touch.has-hover || touch.pressed);
+
+    height: 18px;
+
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: root.hot ? 6px : 4px;
+        border-radius: self.height / 2;
+        background: Theme.border;
+
+        Rectangle {
+            x: 0px;
+            width: parent.width * root.shown;
+            height: parent.height;
+            border-radius: parent.border-radius;
+            background: root.hot ? Theme.accent : Theme.fg-muted;
+        }
+    }
+
+    Rectangle {
+        visible: root.hot;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.fg;
+        x: parent.width * root.shown - self.width / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        moved => {
+            if (self.pressed) {
+                root.moved(root.dragged);
+            }
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.moved(root.dragged);
+            }
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                root.changed(root.dragged);
+            }
+        }
+    }
+}
+
+export component SearchBox inherits Rectangle {
+    in property <string> placeholder: "Search";
+    in-out property <string> text <=> input.text;
+    callback edited(string);
+    /// Escape pressed: give the keyboard back to the app.
+    callback escaped();
+
+    public function focus-input() {
+        input.focus();
+        input.select-all();
+    }
+
+    height: 36px;
+    border-radius: 18px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("icons/search.svg");
+                width: 16px;
+                height: 16px;
+                colorize: Theme.fg-muted;
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.placeholder;
+                visible: input.text == "";
+                color: Theme.fg-muted;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            FocusScope {
+                width: parent.width;
+                height: parent.height;
+                key-pressed(event) => {
+                    if (event.text == Key.Escape) {
+                        root.escaped();
+                        return accept;
+                    }
+                    return reject;
+                }
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    color: Theme.fg;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    single-line: true;
+                    selection-background-color: Theme.accent-soft;
+                    edited => { root.edited(self.text); }
+                    accepted => { root.escaped(); }
+                }
+            }
+        }
+        if input.text != "": VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: @image-url("icons/close.svg");
+                size: 24px;
+                icon-size: 14px;
+                tint: Theme.fg-muted;
+                clicked => {
+                    input.text = "";
+                    root.edited("");
+                }
+            }
+        }
+    }
+}
+
+export component Artwork inherits Rectangle {
+    in property <image> source;
+    in property <bool> has-image;
+    in property <image> placeholder: @image-url("icons/album.svg");
+    in property <length> size: 56px;
+
+    width: size;
+    height: size;
+    border-radius: Math.max(6px, size / 16);
+    clip: true;
+    background: Theme.surface-hover;
+
+    if !root.has-image: Image {
+        source: root.placeholder;
+        width: root.size * 0.42;
+        height: root.size * 0.42;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: Theme.fg-muted;
+    }
+    if root.has-image: Image {
+        source: root.source;
+        width: parent.width;
+        height: parent.height;
+        image-fit: ImageFit.cover;
+    }
+}
+
+/// FFT spectrum with falling bars and peak caps. The look adapts to the theme:
+/// dark = glowing neon gradient with white caps and an optional reflection,
+/// light = crisp ink-blue bars on soft column tracks with dark caps.
+export component Spectrum inherits Rectangle {
+    in property <[float]> bars;
+    in property <[float]> peaks;
+    in property <length> gap: 3px;
+    /// Neon glow around bars and caps (dark theme only).
+    in property <bool> glow: false;
+    /// Mirrored reflection under the bars (dark theme only).
+    in property <bool> reflection: false;
+    /// Bars grow up and down from a center line ("Mirror" style).
+    in property <bool> centered: false;
+
+    property <int> count: Math.max(1, root.bars.length);
+    property <length> bar-w: Math.max(1px, (root.width - root.gap * (root.count - 1)) / root.count);
+    property <length> radius: Math.min(root.bar-w / 2, 3px);
+    property <bool> mirrored: root.reflection && Theme.dark && !root.centered;
+    property <length> base: root.mirrored ? root.height * 0.8 : root.height;
+    property <length> cap: Theme.dark ? 3px : 2px;
+    property <length> travel: Math.max(0px, root.base - root.cap - 3px);
+
+    // Light theme: soft column tracks behind the bars.
+    for v[i] in root.bars: Rectangle {
+        visible: !Theme.dark;
+        x: i * (root.bar-w + root.gap);
+        y: 0px;
+        width: root.bar-w;
+        height: root.base;
+        border-radius: root.radius;
+        background: Theme.surface-hover;
+    }
+
+    // Dark theme: faded reflection below the baseline.
+    for v[i] in root.bars: Rectangle {
+        visible: root.mirrored;
+        x: i * (root.bar-w + root.gap);
+        y: root.base + 3px;
+        width: root.bar-w;
+        height: Math.max(0px, Math.min(v * root.travel * 0.3, root.height - root.base - 3px));
+        border-radius: root.radius;
+        background: @linear-gradient(180deg, #a05cff59 0%, #a05cff00 100%);
+    }
+
+    // The bars.
+    for v[i] in root.bars: Rectangle {
+        x: i * (root.bar-w + root.gap);
+        width: root.bar-w;
+        height: Math.max(Theme.dark ? 2px : 3px, v * root.travel);
+        y: root.centered ? (root.height - self.height) / 2 : root.base - self.height;
+        border-radius: root.radius;
+        background: Theme.dark
+            ? @linear-gradient(0deg, #5b3df5 0%, #a05cff 55%, #ff5fc8 100%)
+            : @linear-gradient(0deg, #2f6bff 0%, #5a46f0 70%, #6a2fd8 100%);
+        drop-shadow-blur: root.glow && Theme.dark ? 12px : 0px;
+        drop-shadow-color: #a05cff70;
+    }
+
+    // Peak caps: hold, then fall with gravity.
+    for p[i] in root.peaks: Rectangle {
+        visible: p > 0.004;
+        x: i * (root.bar-w + root.gap);
+        y: root.centered
+            ? root.height / 2 - p * root.travel / 2 - root.cap - 2px
+            : root.base - p * root.travel - root.cap - 2px;
+        width: root.bar-w;
+        height: root.cap;
+        border-radius: root.cap / 2;
+        background: Theme.dark ? #ffffffe6 : #16161bcc;
+        drop-shadow-blur: root.glow && Theme.dark ? 8px : 0px;
+        drop-shadow-color: #ffffffa0;
+    }
+}
+
+// Lower caps for the centered ("Mirror") style.
+export component MirrorCaps inherits Rectangle {
+    in property <[float]> peaks;
+    in property <length> gap: 3px;
+    property <int> count: Math.max(1, root.peaks.length);
+    property <length> bar-w: Math.max(1px, (root.width - root.gap * (root.count - 1)) / root.count);
+    property <length> cap: Theme.dark ? 3px : 2px;
+    property <length> travel: Math.max(0px, root.height - root.cap - 3px);
+    for p[i] in root.peaks: Rectangle {
+        visible: p > 0.004;
+        x: i * (root.bar-w + root.gap);
+        y: root.height / 2 + p * root.travel / 2 + 2px;
+        width: root.bar-w;
+        height: root.cap;
+        border-radius: root.cap / 2;
+        background: Theme.dark ? #ffffffe6 : #16161bcc;
+    }
+}
+
+/// Shape of the visualizer on screen, so Rust can draw paths that fill it.
+export global VizInfo {
+    in-out property <float> aspect: 3.0;
+}
+
+/// All visualizer styles in one place:
+/// 0 Spectrum, 1 Mirror, 2 Wave (smooth curve), 3 Oscilloscope, 4 Radial.
+/// Styles 2–4 draw SVG paths computed in Rust (viewbox 1000 × 1000).
+export component Visualizer inherits Rectangle {
+    in property <int> style;
+    in property <[float]> bars;
+    in property <[float]> peaks;
+    in property <string> path-a: "M 0 1000 L 1000 1000";
+    in property <string> path-b: "M 0 1000 L 1000 1000";
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <length> gap: 4px;
+    in property <bool> glow: true;
+    /// The visualizer whose shape the Wave/Oscilloscope paths are drawn for.
+    in property <bool> primary: true;
+
+    init => { root.report-aspect(); }
+    changed width => { root.report-aspect(); }
+    changed height => { root.report-aspect(); }
+    changed primary => { root.report-aspect(); }
+    function report-aspect() {
+        if (root.primary && root.height > 0px) {
+            VizInfo.aspect = root.width / root.height;
+        }
+    }
+    // Wave/Oscilloscope paths use a (1000 × aspect) × 1000 viewbox.
+    property <float> vb-width: 1000 * Math.max(0.2, VizInfo.aspect);
+
+    property <brush> stroke-brush: Theme.dark
+        ? @linear-gradient(90deg, #5b3df5 0%, #a05cff 50%, #ff5fc8 100%)
+        : @linear-gradient(90deg, #2f6bff 0%, #5a46f0 60%, #6a2fd8 100%);
+
+    if root.style == 0 || root.style == 1: Spectrum {
+        width: parent.width;
+        height: parent.height;
+        bars: root.bars;
+        peaks: root.peaks;
+        gap: root.gap;
+        glow: root.glow;
+        reflection: root.style == 0;
+        centered: root.style == 1;
+    }
+    if root.style == 1: MirrorCaps {
+        width: parent.width;
+        height: parent.height;
+        peaks: root.peaks;
+        gap: root.gap;
+    }
+
+    if root.style == 2: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: root.vb-width;
+            viewbox-height: 1000;
+            commands: root.path-a;
+            fill: Theme.dark
+                ? @linear-gradient(180deg, #a05cff66 0%, #5b3df510 100%)
+                : @linear-gradient(180deg, #5a46f040 0%, #2f6bff08 100%);
+            stroke: transparent;
+        }
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: root.vb-width;
+            viewbox-height: 1000;
+            commands: root.path-b;
+            fill: transparent;
+            stroke: root.stroke-brush;
+            stroke-width: 3px;
+        }
+    }
+
+    if root.style == 3: Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: root.vb-width;
+        viewbox-height: 1000;
+        commands: root.path-a;
+        fill: transparent;
+        stroke: root.stroke-brush;
+        stroke-width: 3px;
+    }
+
+    if root.style == 4: Rectangle {
+        property <length> side: Math.min(parent.width, parent.height);
+        width: self.side;
+        height: self.side;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1000;
+            viewbox-height: 1000;
+            commands: root.path-a;
+            fill: transparent;
+            stroke: root.stroke-brush;
+            stroke-width: Math.max(2px, parent.width / 160);
+        }
+        // Album art (or the logo) in the middle.
+        Rectangle {
+            width: parent.width * 0.4;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: self.width / 2;
+            clip: true;
+            background: Theme.surface-hover;
+            if root.has-cover: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.cover;
+                image-fit: ImageFit.cover;
+            }
+            if !root.has-cover: Image {
+                width: parent.width * 0.4;
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: @image-url("icons/song.svg");
+                colorize: Theme.fg-muted;
+            }
+        }
+    }
+}
+
+/// Single-line text field with a placeholder.
+export component TextField inherits Rectangle {
+    in property <string> placeholder;
+    in property <InputType> input-type: InputType.text;
+    in-out property <string> text <=> input.text;
+    callback accepted();
+
+    height: 38px;
+    border-radius: 8px;
+    background: Theme.bg;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.placeholder;
+        visible: input.text == "";
+        color: Theme.fg-muted;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    input := TextInput {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        color: Theme.fg;
+        font-size: 13px;
+        vertical-alignment: center;
+        single-line: true;
+        input-type: root.input-type;
+        selection-background-color: Theme.accent-soft;
+        accepted => { root.accepted(); }
+    }
+    public function focus-input() {
+        input.focus();
+    }
+}
+
+/// One row of a popup menu.
+export component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon: true;
+    in property <bool> danger: false;
+    callback clicked;
+    height: 34px;
+    border-radius: 6px;
+    background: touch.has-hover ? Theme.surface-hover : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        if root.has-icon: VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                colorize: root.danger ? Theme.danger : Theme.fg-muted;
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.danger ? Theme.danger : Theme.fg;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Winamp-style vertical slider: a dark groove that lights up from the
+/// bottom (green → yellow → red) up to a bevelled metal knob.
+component RetroSlider inherits Rectangle {
+    in property <float> value;     // -12 … +12 dB
+    in property <string> label;
+    in property <bool> lit: true;
+    callback changed(float);
+
+    width: 34px;
+    property <length> groove-top: 18px;
+    property <length> groove-h: self.height - 40px;
+    property <float> frac: (12 - Math.max(-12, Math.min(12, root.value))) / 24;
+    property <length> knob-y: root.groove-top + root.frac * root.groove-h;
+    property <bool> active: touch.has-hover || touch.pressed;
+
+    // Value readout while hovering or dragging.
+    Text {
+        y: 0px;
+        width: parent.width;
+        height: 16px;
+        text: (root.value > 0.05 ? "+" : "") + Math.round(root.value * 2) / 2;
+        color: Theme.fg;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        opacity: root.active ? 1 : 0;
+        animate opacity { duration: 120ms; }
+    }
+    // Groove (inset).
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: root.groove-top;
+        width: 8px;
+        height: root.groove-h;
+        border-radius: 2px;
+        background: Theme.dark ? #07070b : #b9b9c6;
+        border-width: 1px;
+        border-color: Theme.dark ? #000000 : #9a9aa8;
+        clip: true;
+        // Lit part, below the knob; the gradient spans the whole groove.
+        Rectangle {
+            y: root.knob-y - root.groove-top;
+            width: parent.width;
+            height: Math.max(0px, root.groove-h - (root.knob-y - root.groove-top));
+            clip: true;
+            opacity: root.lit ? 1 : 0.28;
+            Rectangle {
+                y: -(root.knob-y - root.groove-top);
+                width: parent.width;
+                height: root.groove-h;
+                background: @linear-gradient(0deg, #1fd65a 0%, #9be234 38%, #f4d21c 62%, #ff8a1c 82%, #ff3b30 100%);
+            }
+        }
+    }
+    // Knob.
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: root.knob-y - self.height / 2;
+        width: 26px;
+        height: 13px;
+        border-radius: 3px;
+        background: root.active
+            ? @linear-gradient(180deg, #ffffff 0%, #d4d4de 45%, #9d9dab 100%)
+            : @linear-gradient(180deg, #f2f2f7 0%, #c4c4cf 45%, #8a8a98 100%);
+        border-width: 1px;
+        border-color: #00000070;
+        drop-shadow-blur: 3px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000070;
+        Rectangle {
+            width: 14px;
+            height: 1px;
+            background: #00000055;
+        }
+    }
+    Text {
+        y: parent.height - 16px;
+        width: parent.width;
+        height: 16px;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+    touch := TouchArea {
+        y: root.groove-top - 10px;
+        height: root.groove-h + 20px;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.changed(Math.max(-12, Math.min(12, 12 - (self.mouse-y - 10px) / root.groove-h * 24)));
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.changed(Math.max(-12, Math.min(12, 12 - (self.mouse-y - 10px) / root.groove-h * 24)));
+            }
+        }
+        double-clicked => { root.changed(0); }
+        scroll-event(event) => {
+            if (event.delta-y > 0) {
+                root.changed(Math.min(12, root.value + 0.5));
+            } else if (event.delta-y < 0) {
+                root.changed(Math.max(-12, root.value - 0.5));
+            }
+            accept
+        }
+    }
+}
+
+/// Small bevelled button of the equalizer title bar, with an optional LED.
+component RetroButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> led: false;
+    in property <bool> has-led: false;
+    callback clicked();
+    height: 22px;
+    width: label.preferred-width + (root.has-led ? 30px : 18px);
+    border-radius: 4px;
+    background: touch.pressed
+        ? (Theme.dark ? @linear-gradient(180deg, #15151b 0%, #23232c 100%) : @linear-gradient(180deg, #c9c9d3 0%, #e2e2ea 100%))
+        : (Theme.dark ? @linear-gradient(180deg, #3b3b48 0%, #23232c 100%) : @linear-gradient(180deg, #ffffff 0%, #d6d6e0 100%));
+    border-width: 1px;
+    border-color: Theme.dark ? #00000090 : #a8a8b6;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: center;
+        if root.has-led: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 7px;
+                height: 7px;
+                border-radius: 3.5px;
+                background: root.led ? #3dff74 : (Theme.dark ? #0d2414 : #9fb7a6);
+                drop-shadow-blur: root.led ? 6px : 0px;
+                drop-shadow-color: #3dff74;
+            }
+        }
+        label := Text {
+            text: root.text;
+            color: Theme.fg;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Classic Winamp-inspired 10-band graphic equalizer with preamp,
+/// presets and a live response curve.
+export component EqPanel inherits Rectangle {
+    in property <bool> enabled;
+    in property <[float]> gains;
+    in property <float> preamp;
+    in property <int> preset;
+    /// SVG path (viewbox 1000×100) of the response curve.
+    in property <string> curve;
+    callback toggle(bool);
+    callback band-changed(int, float);
+    callback preamp-changed(float);
+    callback preset-selected(int);
+    callback reset();
+    callback close();
+    /// Width / height of the curve display (the curve path is built for it).
+    callback curve-aspect(float);
+
+    property <[string]> labels: ["31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"];
+    property <[string]> presets: ["Flat", "Bass Boost", "Treble Boost", "Vocal", "Rock", "Pop", "Jazz", "Classical", "Electronic", "Loudness"];
+
+    height: 236px;
+    border-radius: 14px;
+    background: Theme.dark
+        ? @linear-gradient(180deg, #2c2c38 0%, #1d1d25 18%, #17171e 100%)
+        : @linear-gradient(180deg, #fdfdff 0%, #ececf2 18%, #dcdce5 100%);
+    border-width: 1px;
+    border-color: Theme.dark ? #3a3a48 : #b9b9c7;
+    drop-shadow-blur: 18px;
+    drop-shadow-color: #00000040;
+
+    VerticalLayout {
+        padding: 12px;
+        padding-top: 8px;
+        spacing: 8px;
+
+        // Title bar
+        HorizontalLayout {
+            height: 24px;
+            spacing: 8px;
+            RetroButton {
+                text: "ON";
+                has-led: true;
+                led: root.enabled;
+                clicked => { root.toggle(!root.enabled); }
+            }
+            presets-button := RetroButton {
+                text: (root.preset >= 0 ? root.presets[root.preset] : "Custom") + "  ▾";
+                clicked => { presets-popup.show(); }
+            }
+            RetroButton {
+                text: "RESET";
+                clicked => { root.reset(); }
+            }
+            // Winamp-style title stripes.
+            Rectangle {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    Rectangle { height: 1px; background: Theme.dark ? #4a4a5a : #b4b4c2; }
+                    Rectangle { height: 1px; background: Theme.dark ? #4a4a5a : #b4b4c2; }
+                    Rectangle { height: 1px; background: Theme.dark ? #4a4a5a : #b4b4c2; }
+                }
+                Rectangle {
+                    width: title.preferred-width + 20px;
+                    background: Theme.dark ? #22222b : #e8e8ef;
+                    title := Text {
+                        text: "EQUALIZER";
+                        color: Theme.fg-muted;
+                        font-size: 11px;
+                        font-weight: 800;
+                        letter-spacing: 3px;
+                    }
+                }
+            }
+            RetroButton {
+                text: "✕";
+                clicked => { root.close(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 14px;
+            vertical-stretch: 1;
+
+            // Preamp
+            RetroSlider {
+                value: root.preamp;
+                label: "PRE";
+                lit: root.enabled;
+                changed(v) => { root.preamp-changed(v); }
+            }
+
+            // dB scale
+            VerticalLayout {
+                padding-top: 12px;
+                padding-bottom: 16px;
+                width: 42px;
+                Text { text: "+12 dB"; color: Theme.fg-muted; font-size: 9px; font-weight: 700; vertical-alignment: top; }
+                Rectangle { vertical-stretch: 1; }
+                Text { text: "0 dB"; color: Theme.fg-muted; font-size: 9px; font-weight: 700; }
+                Rectangle { vertical-stretch: 1; }
+                Text { text: "-12 dB"; color: Theme.fg-muted; font-size: 9px; font-weight: 700; vertical-alignment: bottom; }
+            }
+
+            // Bands
+            HorizontalLayout {
+                horizontal-stretch: 3;
+                alignment: space-between;
+                for gain[i] in root.gains: RetroSlider {
+                    value: gain;
+                    label: root.labels[i];
+                    lit: root.enabled;
+                    changed(v) => { root.band-changed(i, v); }
+                }
+            }
+
+            // Response curve "LCD"
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 150px;
+                max-width: 300px;
+                border-radius: 8px;
+                background: Theme.dark ? #05060a : #1b1d24;
+                border-width: 1px;
+                border-color: #000000;
+                clip: true;
+                // Grid
+                for k in 5: Rectangle {
+                    y: parent.height * (k + 1) / 6;
+                    height: 1px;
+                    background: k == 2 ? #ffffff30 : #ffffff10;
+                }
+                for k in 9: Rectangle {
+                    x: parent.width * (k + 1) / 10;
+                    width: 1px;
+                    background: #ffffff0c;
+                }
+                curve-path := Path {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.width - 16px;
+                    height: parent.height - 16px;
+                    init => { root.curve-aspect(self.width / Math.max(1px, self.height)); }
+                    changed width => { root.curve-aspect(self.width / Math.max(1px, self.height)); }
+                    changed height => { root.curve-aspect(self.width / Math.max(1px, self.height)); }
+                    // Same aspect as the element, so nothing is squashed.
+                    viewbox-width: 100 * self.width / Math.max(1px, self.height);
+                    viewbox-height: 100;
+                    commands: root.curve;
+                    stroke: root.enabled
+                        ? @linear-gradient(0deg, #1fd65a 0%, #f4d21c 55%, #ff3b30 100%)
+                        : #ffffff40;
+                    stroke-width: 2px;
+                }
+                Text {
+                    x: 8px;
+                    y: 6px;
+                    text: root.enabled ? "RESPONSE" : "BYPASSED";
+                    color: root.enabled ? #3dff74 : #ffffff60;
+                    font-size: 9px;
+                    font-weight: 800;
+                    letter-spacing: 2px;
+                }
+            }
+        }
+    }
+
+    presets-popup := PopupWindow {
+        x: presets-button.x + 12px;
+        y: 38px;
+        width: 170px;
+        Rectangle {
+            border-radius: 10px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 5px;
+                for name[i] in root.presets: Rectangle {
+                    height: 28px;
+                    border-radius: 6px;
+                    background: i == root.preset ? Theme.accent-soft : item-touch.has-hover ? Theme.surface-hover : transparent;
+                    Text {
+                        x: 10px;
+                        text: name;
+                        color: Theme.fg;
+                        font-size: 13px;
+                        font-weight: i == root.preset ? 700 : 400;
+                    }
+                    item-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.preset-selected(i); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Visualizer controls, the same in the Now Playing card and in full
+/// screen: previous / next style, the style name, and full screen on/off.
+export component VizControls inherits Rectangle {
+    in property <int> style;
+    in property <bool> fullscreen;
+    callback step(int);
+    callback toggle-fullscreen();
+
+    property <[string]> names: ["Spectrum", "Mirror", "Wave", "Oscilloscope", "Radial"];
+    height: 34px;
+    width: row.preferred-width;
+    border-radius: 17px;
+    background: Theme.dark ? #00000066 : #ffffff99;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    row := HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 2px;
+        IconButton {
+            icon: @image-url("icons/previous.svg");
+            size: 28px;
+            icon-size: 14px;
+            tint: Theme.fg-muted;
+            clicked => { root.step(-1); }
+        }
+        Text {
+            min-width: 96px;
+            text: root.names[Math.mod(root.style, 5)];
+            color: Theme.fg;
+            font-size: 12px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        IconButton {
+            icon: @image-url("icons/next.svg");
+            size: 28px;
+            icon-size: 14px;
+            tint: Theme.fg-muted;
+            clicked => { root.step(1); }
+        }
+        Rectangle { width: 1px; background: Theme.border; }
+        IconButton {
+            icon: root.fullscreen ? @image-url("icons/fullscreen-exit.svg") : @image-url("icons/fullscreen.svg");
+            size: 28px;
+            icon-size: 15px;
+            tint: Theme.fg-muted;
+            clicked => { root.toggle-fullscreen(); }
+        }
+    }
+}

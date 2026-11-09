@@ -1,0 +1,1394 @@
+// The content pages: albums, album detail, artists, songs, radio, queue.
+
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import {
+    ServerItem,
+    AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, TextField,
+    IconButton, PillButton, Chip, Artwork, Spectrum, SeekBar, Visualizer, EqPanel, VizControls,
+} from "widgets.slint";
+
+component EmptyState inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> message;
+    in property <string> action;
+    callback activated;
+
+    alignment: center;
+    spacing: 10px;
+    HorizontalLayout {
+        alignment: center;
+        Image {
+            source: root.icon;
+            width: 56px;
+            height: 56px;
+            colorize: Theme.fg-muted;
+        }
+    }
+    Text {
+        text: root.title;
+        color: Theme.fg;
+        font-size: 18px;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: root.message;
+        color: Theme.fg-muted;
+        font-size: 13px;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.action != "": HorizontalLayout {
+        alignment: center;
+        padding-top: 8px;
+        PillButton {
+            text: root.action;
+            icon: @image-url("icons/folder.svg");
+            primary: true;
+            clicked => { root.activated(); }
+        }
+    }
+}
+
+component AlbumCard inherits Rectangle {
+    in property <AlbumItem> item;
+    callback clicked;
+
+    width: 176px;
+    height: 232px;
+    border-radius: 12px;
+    background: touch.has-hover ? Theme.surface : transparent;
+    animate background { duration: 120ms; }
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Artwork {
+            size: 160px;
+            source: root.item.cover;
+            has-image: root.item.has-cover;
+        }
+        Rectangle { height: 4px; }
+        Text {
+            text: root.item.title;
+            color: Theme.fg;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+        }
+        Text {
+            text: root.item.year == "" ? root.item.artist : root.item.artist + " • " + root.item.year;
+            color: Theme.fg-muted;
+            font-size: 12px;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Comfy / Cozy switch for song lists.
+export component DensitySwitch inherits HorizontalLayout {
+    callback changed(bool);
+    spacing: 6px;
+    alignment: end;
+    Chip { text: "Comfy"; selected: !Theme.compact; clicked => { root.changed(false); } }
+    Chip { text: "Cozy"; selected: Theme.compact; clicked => { root.changed(true); } }
+}
+
+export component AlbumsPage inherits Rectangle {
+    in property <[AlbumItem]> albums;
+    in property <bool> library-empty;
+    in property <bool> scanning;
+    callback open-album(int);
+    callback add-folder();
+
+    property <length> cell-w: 184px;
+    property <length> cell-h: 240px;
+    property <int> cols: Math.max(1, Math.floor((root.width - 40px) / cell-w));
+
+    if root.albums.length > 0: ScrollView {
+        width: parent.width;
+        height: parent.height;
+        content-width: self.visible-width;
+        content-height: Math.ceil(root.albums.length / root.cols) * root.cell-h + 32px;
+        for album[i] in root.albums: AlbumCard {
+            x: 20px + Math.mod(i, root.cols) * root.cell-w;
+            y: 8px + Math.floor(i / root.cols) * root.cell-h;
+            item: album;
+            clicked => { root.open-album(i); }
+        }
+    }
+    if root.albums.length == 0: EmptyState {
+        width: parent.width;
+        height: parent.height;
+        icon: @image-url("icons/album.svg");
+        title: root.scanning ? "Scanning your music…" : (root.library-empty ? "Your library is empty" : "No albums found");
+        message: root.library-empty && !root.scanning ? "Add a folder with music files (MP3, FLAC, AAC, OGG, WAV…) to get started." : "";
+        action: root.library-empty && !root.scanning ? "Add music folder" : "";
+        activated => { root.add-folder(); }
+    }
+}
+
+export component TrackRow inherits Rectangle {
+    in property <TrackItem> item;
+    in property <bool> current;
+    in property <bool> show-album: true;
+    /// Every second row gets a subtle stripe (Apple Music style).
+    in property <bool> striped: false;
+    in property <bool> show-menu: true;
+    callback activated;
+    /// "…" button pressed; position (window coordinates) for the menu.
+    callback menu(length, length);
+
+    height: Theme.compact ? 30px : 46px;
+    border-radius: Theme.compact ? 4px : 6px;
+    background: root.current ? Theme.accent-soft
+        : touch.has-hover ? Theme.surface-hover
+        : root.striped ? (Theme.dark ? #ffffff0a : #0000000a)
+        : transparent;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.activated(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 20px;
+        spacing: 16px;
+        Rectangle {
+            width: 28px;
+            if !root.current: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.item.number;
+                color: Theme.fg-muted;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+            // Play triangle on the song that is playing.
+            if root.current: Image {
+                source: @image-url("icons/play.svg");
+                width: 14px;
+                height: 14px;
+                x: parent.width - self.width;
+                y: (parent.height - self.height) / 2;
+                colorize: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 3;
+            alignment: center;
+            Text {
+                min-width: 0px;
+                preferred-width: 0px;
+                text: root.item.title;
+                color: root.current ? Theme.accent : Theme.fg;
+                font-size: Theme.compact ? 13px : 14px;
+                font-weight: root.current ? 600 : 400;
+                overflow: elide;
+            }
+            if !Theme.compact: Text {
+                min-width: 0px;
+                preferred-width: 0px;
+                text: root.item.artist;
+                color: Theme.fg-muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+        // Cozy view in song lists: artist gets its own column.
+        if Theme.compact && root.show-album: Text {
+            min-width: 0px;
+            preferred-width: 0px;
+            horizontal-stretch: 2;
+            text: root.item.artist;
+            color: Theme.fg-muted;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.show-album: Text {
+            min-width: 0px;
+            preferred-width: 0px;
+            horizontal-stretch: 2;
+            text: root.item.album;
+            color: Theme.fg-muted;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            width: 52px;
+            text: root.item.duration;
+            color: Theme.fg-muted;
+            font-size: 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        if root.show-menu: VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: @image-url("icons/more.svg");
+                size: 28px;
+                icon-size: 16px;
+                tint: Theme.fg-muted;
+                clicked => { root.menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+            }
+        }
+    }
+}
+
+export component AlbumDetailPage inherits Rectangle {
+    in property <AlbumItem> album;
+    in property <string> info;
+    in property <[TrackItem]> tracks;
+    in property <string> current-key;
+    callback play(bool);
+    callback play-track(int);
+    callback track-menu(int, length, length);
+    callback album-menu(length, length);
+    callback density-changed(bool);
+
+    VerticalLayout {
+        padding: 24px;
+        padding-top: 8px;
+        spacing: 20px;
+        HorizontalLayout {
+            spacing: 24px;
+            Artwork {
+                size: 200px;
+                source: root.album.cover;
+                has-image: root.album.has-cover;
+            }
+            VerticalLayout {
+                alignment: end;
+                spacing: 6px;
+                Text {
+                    text: "ALBUM";
+                    color: Theme.fg-muted;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 1.5px;
+                }
+                Text {
+                    text: root.album.title;
+                    color: Theme.fg;
+                    font-size: 30px;
+                    font-weight: 800;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.album.year == "" ? root.album.artist : root.album.artist + " • " + root.album.year;
+                    color: Theme.fg;
+                    font-size: 15px;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.info;
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                }
+                Rectangle { height: 8px; }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Play";
+                        icon: @image-url("icons/play.svg");
+                        primary: true;
+                        clicked => { root.play(false); }
+                    }
+                    PillButton {
+                        text: "Shuffle";
+                        icon: @image-url("icons/shuffle.svg");
+                        clicked => { root.play(true); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: @image-url("icons/more.svg");
+                            size: 38px;
+                            icon-size: 18px;
+                            clicked => { root.album-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    DensitySwitch { changed(c) => { root.density-changed(c); } }
+                }
+            }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for track[i] in root.tracks: TrackRow {
+                item: track;
+                show-album: false;
+                striped: Math.mod(i, 2) == 1;
+                current: track.key == root.current-key;
+                activated => { root.play-track(i); }
+                menu(x, y) => { root.track-menu(i, x, y); }
+            }
+        }
+    }
+}
+
+export component ArtistsPage inherits Rectangle {
+    in property <[ArtistItem]> artists;
+    callback open-artist(int);
+
+    if root.artists.length == 0: EmptyState {
+        width: parent.width;
+        height: parent.height;
+        icon: @image-url("icons/artist.svg");
+        title: "No artists yet";
+        message: "Artists appear here once your music folders are scanned.";
+    }
+    if root.artists.length > 0: ListView {
+        width: parent.width;
+        height: parent.height;
+        for artist[i] in root.artists: Rectangle {
+            height: 60px;
+            border-radius: 8px;
+            background: touch.has-hover ? Theme.surface : transparent;
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-artist(i); }
+            }
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 14px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 20px;
+                        background: Theme.accent-soft;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: artist.initial;
+                            color: Theme.accent;
+                            font-size: 16px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: artist.name;
+                        color: Theme.fg;
+                        font-size: 14px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: artist.info;
+                        color: Theme.fg-muted;
+                        font-size: 12px;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SongsPage inherits Rectangle {
+    in property <[TrackItem]> songs;
+    in property <string> current-key;
+    in property <bool> searching;
+    callback play-song(int);
+    callback track-menu(int, length, length);
+
+    if root.songs.length == 0: EmptyState {
+        width: parent.width;
+        height: parent.height;
+        icon: @image-url("icons/song.svg");
+        title: root.searching ? "No matching songs" : "No songs yet";
+        message: root.searching ? "Try a different search." : "Songs appear here once your music folders are scanned.";
+    }
+    if root.songs.length > 0: VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 12px;
+        padding-right: 12px;
+        ListView {
+            for song[i] in root.songs: TrackRow {
+                item: song;
+                striped: Math.mod(i, 2) == 1;
+                current: song.key == root.current-key;
+                activated => { root.play-song(i); }
+                menu(x, y) => { root.track-menu(i, x, y); }
+            }
+        }
+    }
+}
+
+export component RadioPage inherits Rectangle {
+    in property <[StationItem]> stations;
+    in property <int> tab;
+    in property <bool> loading;
+    in property <string> status;
+    in property <string> current-key;
+    callback select-tab(int);
+    callback genre(string);
+    callback add-stream();
+    callback play-station(int);
+    callback toggle-favorite(int);
+
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Chip { text: "Popular"; selected: root.tab == 0; clicked => { root.select-tab(0); } }
+            Chip { text: "Favorites"; selected: root.tab == 1; clicked => { root.select-tab(1); } }
+            Chip { text: "Hungary"; selected: root.tab == 2; clicked => { root.select-tab(2); } }
+            Rectangle { width: 12px; }
+            for g in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
+                text: g;
+                selected: false;
+                clicked => { root.genre(g); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            PillButton {
+                text: "Add stream URL";
+                icon: @image-url("icons/plus.svg");
+                clicked => { root.add-stream(); }
+            }
+        }
+        if root.status != "": Text {
+            text: root.loading ? "Loading stations…" : root.status;
+            color: Theme.fg-muted;
+            font-size: 12px;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            if root.stations.length == 0 && !root.loading: EmptyState {
+                width: parent.width;
+                height: parent.height;
+                icon: @image-url("icons/radio.svg");
+                title: root.tab == 1 ? "No favorite stations" : "No stations";
+                message: root.tab == 1 ? "Tap the heart next to a station to keep it here." : "Search for a station by name above.";
+            }
+            if root.stations.length > 0: ListView {
+                width: parent.width;
+                height: parent.height;
+                for station[i] in root.stations: row := Rectangle {
+                    property <bool> current: station.key == root.current-key;
+                    height: 60px;
+                    border-radius: 8px;
+                    background: row.current ? Theme.accent-soft : (touch.has-hover ? Theme.surface : transparent);
+                    touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.play-station(i); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 14px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 40px;
+                                height: 40px;
+                                border-radius: 8px;
+                                background: row.current ? Theme.accent : Theme.surface-hover;
+                                Text {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: station.initial;
+                                    color: row.current ? Theme.on-accent : Theme.fg;
+                                    font-size: 16px;
+                                    font-weight: 700;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: station.name;
+                                color: row.current ? Theme.accent : Theme.fg;
+                                font-size: 14px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: station.info;
+                                color: Theme.fg-muted;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: station.favorite ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                                active: station.favorite;
+                                tint: Theme.fg-muted;
+                                size: 34px;
+                                icon-size: 18px;
+                                clicked => { root.toggle-favorite(i); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component QueuePage inherits Rectangle {
+    in property <[QueueEntry]> queue;
+    callback play-index(int);
+    callback remove-index(int);
+    callback clear();
+    callback save-as-playlist();
+    /// Drag & drop reordering.
+    callback move-index(int, int);
+    property <int> drag-from: -1;
+    property <int> drop-target: -1;
+
+    if root.queue.length == 0: EmptyState {
+        width: parent.width;
+        height: parent.height;
+        icon: @image-url("icons/queue.svg");
+        title: "The queue is empty";
+        message: "Play an album, a song or a station and it will show up here.";
+    }
+    if root.queue.length > 0: VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 8px;
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.queue.length == 1 ? "1 item" : root.queue.length + " items";
+                color: Theme.fg-muted;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                PillButton {
+                    text: "Save as playlist";
+                    icon: @image-url("icons/playlist.svg");
+                    clicked => { root.save-as-playlist(); }
+                }
+                PillButton {
+                    text: "Clear queue";
+                    has-icon: false;
+                    clicked => { root.clear(); }
+                }
+            }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for entry[i] in root.queue: Rectangle {
+                height: 52px;
+                border-radius: 8px;
+                opacity: root.drag-from == i ? 0.45 : 1.0;
+                background: entry.current ? Theme.accent-soft : (touch.has-hover ? Theme.surface : transparent);
+                touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.play-index(i); }
+                }
+                // Drop position indicator.
+                if root.drag-from >= 0 && root.drop-target == i && i != root.drag-from: Rectangle {
+                    x: 0px;
+                    y: i < root.drag-from ? 0px : parent.height - 3px;
+                    width: parent.width;
+                    height: 3px;
+                    border-radius: 2px;
+                    background: Theme.accent;
+                }
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 8px;
+                    spacing: 10px;
+                    // Drag handle.
+                    Rectangle {
+                        width: 24px;
+                        Image {
+                            source: @image-url("icons/drag.svg");
+                            width: 18px;
+                            height: 18px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.fg-muted;
+                        }
+                        TouchArea {
+                            mouse-cursor: move;
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                                    root.drag-from = i;
+                                    root.drop-target = i;
+                                }
+                                if (event.kind == PointerEventKind.up) {
+                                    if (root.drag-from >= 0 && root.drop-target != root.drag-from) {
+                                        root.move-index(root.drag-from, root.drop-target);
+                                    }
+                                    root.drag-from = -1;
+                                    root.drop-target = -1;
+                                }
+                            }
+                            moved => {
+                                if (self.pressed && root.drag-from >= 0) {
+                                    root.drop-target = Math.max(0, Math.min(root.queue.length - 1,
+                                        root.drag-from + Math.round((self.mouse-y - self.pressed-y) / 52px)));
+                                }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: entry.radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+                            width: 18px;
+                            height: 18px;
+                            colorize: entry.current ? Theme.accent : Theme.fg-muted;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: entry.title;
+                            color: entry.current ? Theme.accent : Theme.fg;
+                            font-size: 14px;
+                            font-weight: entry.current ? 600 : 400;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: entry.subtitle;
+                            color: Theme.fg-muted;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        text: entry.duration;
+                        color: Theme.fg-muted;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: @image-url("icons/close.svg");
+                            size: 30px;
+                            icon-size: 16px;
+                            tint: Theme.fg-muted;
+                            clicked => { root.remove-index(i); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component NowPlayingPage inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <bool> is-radio;
+    in property <bool> has-track;
+    in property <bool> playing;
+    in property <image> backdrop;
+    in property <bool> has-backdrop;
+    in property <[float]> bars;
+    in property <[float]> peaks;
+    in property <int> viz-style;
+    in property <string> path-a;
+    in property <string> path-b;
+    /// The full-screen visualizer is open on top of this page.
+    in property <bool> covered;
+    callback open-fullscreen();
+    callback step-viz(int);
+    // Equalizer section
+    in property <bool> eq-open;
+    in property <bool> eq-enabled;
+    in property <[float]> eq-gains;
+    in property <float> eq-preamp;
+    in property <int> eq-preset;
+    in property <string> eq-curve;
+    callback eq-open-changed(bool);
+    callback eq-toggle(bool);
+    callback eq-preset-selected(int);
+    callback eq-band-changed(int, float);
+    callback eq-preamp-changed(float);
+    callback eq-reset();
+    callback eq-curve-aspect(float);
+
+    // Artist photo, faded into the background.
+    if root.has-backdrop: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        clip: true;
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.backdrop;
+            image-fit: ImageFit.cover;
+            opacity: Theme.dark ? 0.32 : 0.24;
+        }
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: @linear-gradient(180deg, Theme.bg.transparentize(0.75) 0%, Theme.bg.transparentize(0.35) 55%, Theme.bg.transparentize(0.1) 100%);
+        }
+    }
+
+    VerticalLayout {
+        padding: 28px;
+        padding-top: 4px;
+        spacing: 24px;
+        HorizontalLayout {
+            spacing: 28px;
+            Artwork {
+                size: root.eq-open ? 140px : 200px;
+                source: root.cover;
+                has-image: root.has-cover;
+                placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 6px;
+                horizontal-stretch: 1;
+                Text {
+                    text: !root.has-track ? "NOTHING PLAYING" : root.is-radio ? "LIVE RADIO" : "NOW PLAYING";
+                    color: root.is-radio ? Theme.accent : Theme.fg-muted;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 1.5px;
+                }
+                Text {
+                    text: root.has-track ? root.title : "Pick an album, a song or a station";
+                    color: Theme.fg;
+                    font-size: 30px;
+                    font-weight: 800;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.subtitle;
+                    color: Theme.fg-muted;
+                    font-size: 15px;
+                    overflow: elide;
+                }
+            }
+            VerticalLayout {
+                alignment: start;
+                horizontal-stretch: 0;
+                PillButton {
+                    horizontal-stretch: 0;
+                    text: "Equalizer";
+                    icon: @image-url("icons/equalizer.svg");
+                    primary: root.eq-open;
+                    clicked => { root.eq-open-changed(!root.eq-open); }
+                }
+            }
+        }
+        if root.eq-open: EqPanel {
+            enabled: root.eq-enabled;
+            gains: root.eq-gains;
+            preamp: root.eq-preamp;
+            preset: root.eq-preset;
+            curve: root.eq-curve;
+            toggle(on) => { root.eq-toggle(on); }
+            band-changed(i, v) => { root.eq-band-changed(i, v); }
+            preamp-changed(v) => { root.eq-preamp-changed(v); }
+            preset-selected(i) => { root.eq-preset-selected(i); }
+            reset => { root.eq-reset(); }
+            close => { root.eq-open-changed(false); }
+            curve-aspect(a) => { root.eq-curve-aspect(a); }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 140px;
+            border-radius: 16px;
+            // See-through, so the artist photo shows behind the visualizer.
+            background: Theme.dark ? #0a0a0f8c : Theme.surface.transparentize(0.45);
+            border-width: 1px;
+            border-color: Theme.border;
+            Visualizer {
+                x: 28px;
+                y: 28px;
+                width: parent.width - 56px;
+                height: parent.height - 48px;
+                style: root.viz-style;
+                bars: root.bars;
+                peaks: root.peaks;
+                path-a: root.path-a;
+                path-b: root.path-b;
+                cover: root.cover;
+                has-cover: root.has-cover;
+                primary: !root.covered;
+            }
+            // Same controls as in full screen: left/right click change the
+            // style, double-click (or the button) toggles full screen.
+            TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        if (event.button == PointerEventButton.left) {
+                            root.step-viz(1);
+                        } else if (event.button == PointerEventButton.right) {
+                            root.step-viz(-1);
+                        }
+                    }
+                }
+                double-clicked => {
+                    root.step-viz(-2); // undo the two clicks of the double-click
+                    root.open-fullscreen();
+                }
+            }
+            VizControls {
+                x: parent.width - self.width - 12px;
+                y: 12px;
+                style: root.viz-style;
+                fullscreen: false;
+                step(d) => { root.step-viz(d); }
+                toggle-fullscreen => { root.open-fullscreen(); }
+            }
+        }
+    }
+}
+
+/// Albums on a Jellyfin or Plex server.
+export component ServerPage inherits Rectangle {
+    in property <[AlbumItem]> albums;
+    in property <string> status;
+    in property <bool> loading;
+    callback open-album(int);
+    callback refresh();
+    callback filter(string);
+
+    VerticalLayout {
+        HorizontalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-bottom: 8px;
+            spacing: 10px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.status;
+                color: Theme.fg-muted;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 220px;
+                placeholder: "Filter albums";
+                changed text => { root.filter(self.text); }
+            }
+            IconButton {
+                icon: @image-url("icons/refresh.svg");
+                size: 38px;
+                icon-size: 18px;
+                enabled: !root.loading;
+                clicked => { root.refresh(); }
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            if root.albums.length > 0: AlbumsPage {
+                width: parent.width;
+                height: parent.height;
+                albums: root.albums;
+                library-empty: false;
+                scanning: false;
+                open-album(i) => { root.open-album(i); }
+            }
+            if root.albums.length == 0: Text {
+                text: root.loading ? "Loading albums…" : "No albums";
+                color: Theme.fg-muted;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component SettingsCard inherits Rectangle {
+    in property <string> title;
+    border-radius: 14px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        Text {
+            text: root.title;
+            color: Theme.fg;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        @children
+    }
+}
+
+export component SettingsPage inherits Rectangle {
+    in property <[string]> folders;
+    in property <string> version;
+    in property <string> log-path;
+    in property <bool> scanning;
+    in property <bool> download-art;
+    callback download-art-changed(bool);
+    callback theme-selected(int);
+    callback density-changed(bool);
+    callback opacity-changed(float);
+    in property <bool> glass-available;
+    in property <bool> glass;
+    callback glass-changed(bool);
+    in property <int> glass-countdown;
+    callback glass-keep();
+    callback add-folder();
+    callback remove-folder(int);
+    callback rescan();
+    in property <[ServerItem]> servers;
+    callback add-server();
+    callback remove-server(int);
+
+    scroll := ScrollView {
+        width: parent.width;
+        height: parent.height;
+        content-width: self.visible-width;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            width: scroll.visible-width;
+            padding: 24px;
+            padding-top: 4px;
+            spacing: 18px;
+            alignment: start;
+
+            SettingsCard {
+                title: "Appearance";
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Theme";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "System"; selected: Theme.mode == 0; clicked => { root.theme-selected(0); } }
+                    Chip { text: "Light"; selected: Theme.mode == 1; clicked => { root.theme-selected(1); } }
+                    Chip { text: "Dark"; selected: Theme.mode == 2; clicked => { root.theme-selected(2); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Song lists";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "Comfy"; selected: !Theme.compact; clicked => { root.density-changed(false); } }
+                    Chip { text: "Cozy"; selected: Theme.compact; clicked => { root.density-changed(true); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    Text {
+                        width: 180px;
+                        text: "Window transparency";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        SeekBar {
+                            width: 260px;
+                            value: Theme.user-see-through / 0.5;
+                            moved(v) => { Theme.opacity = 1.0 - v * 0.5; }
+                            changed(v) => {
+                                Theme.opacity = 1.0 - v * 0.5;
+                                root.opacity-changed(Theme.opacity);
+                            }
+                        }
+                    }
+                    Text {
+                        text: Math.round(Theme.user-see-through * 100) + "%";
+                        color: Theme.fg;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                if root.glass-available: HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Frosted glass (beta)";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "On"; selected: root.glass; clicked => { root.glass-changed(true); } }
+                    Chip { text: "Off"; selected: !root.glass; clicked => { root.glass-changed(false); } }
+                    if root.glass-countdown > 0: Text {
+                        text: "Keep it? Turning off in " + root.glass-countdown + " s";
+                        color: Theme.fg;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    if root.glass-countdown > 0: Chip {
+                        text: "Keep";
+                        selected: true;
+                        clicked => { root.glass-keep(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                Text {
+                    text: (root.glass-available ? "Frosted glass blurs what's behind the window, like macOS's own sidebars. " : "")
+                        + "Transparency lets your desktop show through the window background. 0% is fully solid.";
+                    color: Theme.fg-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+
+            SettingsCard {
+                title: "Music folders";
+                if root.folders.length == 0: Text {
+                    text: "No folders yet. Add the folders that contain your music.";
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                }
+                for folder[i] in root.folders: Rectangle {
+                    height: 40px;
+                    border-radius: 8px;
+                    background: Theme.surface-hover;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("icons/folder.svg");
+                                width: 16px;
+                                height: 16px;
+                                colorize: Theme.fg-muted;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            text: folder;
+                            color: Theme.fg;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/close.svg");
+                                size: 30px;
+                                icon-size: 15px;
+                                tint: Theme.fg-muted;
+                                clicked => { root.remove-folder(i); }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Download missing album art (MusicBrainz / Cover Art Archive)";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    Chip { text: "On"; selected: root.download-art; clicked => { root.download-art-changed(true); } }
+                    Chip { text: "Off"; selected: !root.download-art; clicked => { root.download-art-changed(false); } }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Add folder";
+                        icon: @image-url("icons/plus.svg");
+                        primary: true;
+                        clicked => { root.add-folder(); }
+                    }
+                    PillButton {
+                        text: root.scanning ? "Scanning…" : "Rescan library";
+                        icon: @image-url("icons/refresh.svg");
+                        clicked => { root.rescan(); }
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: "Music servers";
+                Text {
+                    text: "Play the music on your own Jellyfin or Plex server.";
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                for server[i] in root.servers: Rectangle {
+                    height: 44px;
+                    border-radius: 8px;
+                    background: Theme.surface-hover;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("icons/server.svg");
+                                width: 16px;
+                                height: 16px;
+                                colorize: Theme.fg-muted;
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            Text {
+                                text: server.name;
+                                color: Theme.fg;
+                                font-size: 13px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: server.info;
+                                color: Theme.fg-muted;
+                                font-size: 11px;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/close.svg");
+                                size: 30px;
+                                icon-size: 15px;
+                                tint: Theme.fg-muted;
+                                clicked => { root.remove-server(i); }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    PillButton {
+                        text: "Add server";
+                        icon: @image-url("icons/plus.svg");
+                        clicked => { root.add-server(); }
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: "Keyboard shortcuts";
+                for row in [
+                    { keys: "Space", action: "Play / pause" },
+                    { keys: "← / →", action: "Seek 5 seconds back / forward" },
+                    { keys: "⌘/Ctrl + ← / →", action: "Previous / next track" },
+                    { keys: "↑ / ↓", action: "Volume up / down" },
+                    { keys: "⌘/Ctrl + F  or  /", action: "Search" },
+                    { keys: "V", action: "Full-screen visualizer (← → change style, Esc exits)" },
+                    { keys: "S / R", action: "Shuffle / repeat" },
+                ]: HorizontalLayout {
+                    spacing: 16px;
+                    Text {
+                        width: 180px;
+                        text: row.keys;
+                        color: Theme.fg;
+                        font-size: 13px;
+                        font-weight: 600;
+                    }
+                    Text {
+                        text: row.action;
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: "About";
+                Text {
+                    text: "Unitn player " + root.version + " • free and open source (GPL-3.0) • github.com/boka89/Unitn";
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Log file: " + root.log-path;
+                    color: Theme.fg-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
+
+export component PlaylistPage inherits Rectangle {
+    in property <string> name;
+    in property <string> info;
+    in property <[TrackItem]> tracks;
+    in property <string> current-key;
+    in-out property <bool> editing: false;
+    callback play(bool);
+    callback play-track(int);
+    callback rename(string);
+    callback delete();
+    callback export();
+    callback track-menu(int, length, length);
+    callback density-changed(bool);
+
+    VerticalLayout {
+        padding: 24px;
+        padding-top: 8px;
+        spacing: 20px;
+        HorizontalLayout {
+            spacing: 24px;
+            Rectangle {
+                width: 200px;
+                height: 200px;
+                border-radius: 12px;
+                background: @linear-gradient(135deg, Theme.accent 0%, #d061ff 100%);
+                Image {
+                    source: @image-url("icons/playlist.svg");
+                    width: 72px;
+                    height: 72px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    colorize: #ffffff;
+                }
+            }
+            VerticalLayout {
+                alignment: end;
+                spacing: 6px;
+                Text {
+                    text: "PLAYLIST";
+                    color: Theme.fg-muted;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 1.5px;
+                }
+                if !root.editing: Rectangle {
+                    height: 42px;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.name;
+                        color: Theme.fg;
+                        font-size: 30px;
+                        font-weight: 800;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: text;
+                        clicked => { root.editing = true; }
+                    }
+                }
+                if root.editing: TextField {
+                    width: 360px;
+                    init => {
+                        self.text = root.name;
+                        self.focus-input();
+                    }
+                    accepted => {
+                        root.rename(self.text);
+                        root.editing = false;
+                    }
+                }
+                Text {
+                    text: root.editing ? "Press Enter to save the new name" : root.info + "  ·  click the name to rename";
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                }
+                Rectangle { height: 8px; }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Play";
+                        icon: @image-url("icons/play.svg");
+                        primary: true;
+                        clicked => { root.play(false); }
+                    }
+                    PillButton {
+                        text: "Shuffle";
+                        icon: @image-url("icons/shuffle.svg");
+                        clicked => { root.play(true); }
+                    }
+                    PillButton {
+                        text: "Export M3U";
+                        icon: @image-url("icons/export.svg");
+                        clicked => { root.export(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: @image-url("icons/trash.svg");
+                            size: 38px;
+                            icon-size: 18px;
+                            tint: Theme.danger;
+                            clicked => { root.delete(); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    DensitySwitch { changed(c) => { root.density-changed(c); } }
+                }
+            }
+        }
+        if root.tracks.length == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: @image-url("icons/playlist.svg");
+            title: "This playlist is empty";
+            message: "Use the … button next to any song or album to add it here.";
+        }
+        if root.tracks.length > 0: ListView {
+            vertical-stretch: 1;
+            for track[i] in root.tracks: TrackRow {
+                item: track;
+                striped: Math.mod(i, 2) == 1;
+                current: track.key == root.current-key;
+                activated => { root.play-track(i); }
+                menu(x, y) => { root.track-menu(i, x, y); }
+            }
+        }
+    }
+}

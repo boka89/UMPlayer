@@ -1,0 +1,1448 @@
+// Unitn main window.
+
+import { Palette, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import {
+    AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, MenuRow, FixCandidate, ServerItem, Chip,
+    IconButton, PillButton, NavItem, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls,
+} from "widgets.slint";
+import { AlbumsPage, AlbumDetailPage, ArtistsPage, SongsPage, RadioPage, QueuePage, NowPlayingPage, SettingsPage, PlaylistPage, ServerPage } from "pages.slint";
+
+export { Theme, VizInfo, AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, FixCandidate, ServerItem }
+
+component ThemeSwitch inherits Rectangle {
+    callback selected(int);
+    height: 36px;
+    border-radius: 18px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        for option[i] in [
+            { icon: @image-url("icons/monitor.svg"), mode: 0 },
+            { icon: @image-url("icons/sun.svg"), mode: 1 },
+            { icon: @image-url("icons/moon.svg"), mode: 2 },
+        ]: Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 15px;
+            background: Theme.mode == option.mode ? Theme.accent : (touch.has-hover ? Theme.surface-hover : transparent);
+            animate background { duration: 150ms; }
+            Image {
+                source: option.icon;
+                width: 16px;
+                height: 16px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                colorize: Theme.mode == option.mode ? Theme.on-accent : Theme.fg-muted;
+            }
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.selected(option.mode); }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Unitn player";
+    icon: @image-url("../icons/256x256.png");
+    min-width: 960px;
+    min-height: 620px;
+    preferred-width: 1280px;
+    preferred-height: 820px;
+    background: root.viz-fullscreen ? (Theme.dark ? #050508 : Theme.bg) : Theme.bg.transparentize(Theme.see-through);
+    full-screen: root.viz-fullscreen;
+    default-font-size: 13px;
+
+    /// Space for the macOS window buttons (the title bar is drawn by us there).
+    in property <length> titlebar-inset: 0px;
+
+    // Pages: 0 albums, 1 artists, 2 songs, 3 radio, 4 queue, 5 album detail, 6 now playing, 7 settings, 8 playlist
+    in-out property <int> page: 0;
+
+    // Library
+    in property <[AlbumItem]> albums;
+    in property <string> albums-title: "Albums";
+    in property <bool> albums-filtered: false;
+    in property <AlbumItem> album;
+    in property <string> album-info;
+    in property <[TrackItem]> album-tracks;
+    in property <[ArtistItem]> artists;
+    in property <[TrackItem]> songs;
+    in property <bool> library-empty: true;
+    in property <bool> scanning: false;
+    in property <string> library-status;
+    in property <string> library-query;
+
+    // Radio
+    in property <[StationItem]> stations;
+    in property <int> radio-tab: 0;
+    in property <bool> radio-loading: false;
+    in property <string> radio-status;
+
+    // Queue & now playing
+    in property <[QueueEntry]> queue;
+    in property <string> current-key;
+    in property <bool> has-track: false;
+    in property <bool> is-radio: false;
+    in property <string> np-title: "Not playing";
+    in property <string> np-subtitle;
+    in property <image> np-cover;
+    in property <bool> np-has-cover: false;
+    in property <image> np-backdrop;
+    in property <bool> np-has-backdrop: false;
+    in property <bool> playing: false;
+    in property <bool> buffering: false;
+    in property <float> position: 0;
+    in property <string> position-text: "0:00";
+    in property <string> duration-text: "0:00";
+    in property <bool> seekable: false;
+    in-out property <float> volume: 0.8;
+    in property <bool> shuffle: false;
+    in property <int> repeat-mode: 0;
+    in property <string> toast;
+    /// Files are being dragged over the window.
+    in property <bool> drop-hover: false;
+
+    // Visualizer (FFT bars 0..1)
+    in property <[float]> viz-bars;
+    in property <[float]> viz-peaks;
+    in property <[float]> mini-bars;
+    in property <[float]> mini-peaks;
+    /// 0 Spectrum, 1 Mirror, 2 Wave, 3 Oscilloscope, 4 Radial
+    in-out property <int> viz-style: 0;
+    in-out property <bool> viz-fullscreen: false;
+    in property <string> viz-path-a: "M 0 1000 L 1000 1000";
+    in property <string> viz-path-b: "M 0 1000 L 1000 1000";
+    callback viz-style-changed(int);
+
+    // Playlists
+    in property <[PlaylistItem]> playlists;
+    in property <int> current-playlist: -1;
+    in property <string> playlist-name;
+    in property <string> playlist-info;
+    in property <[TrackItem]> playlist-tracks;
+    callback open-playlist(int);
+    callback new-playlist();
+    callback import-playlist();
+    callback rename-playlist(string);
+    callback delete-playlist();
+    callback export-playlist();
+    callback play-playlist(bool);
+    callback play-playlist-track(int);
+    callback save-queue-as-playlist();
+    // Song menu: context 0 album track, 1 song, 2 playlist track, 3 whole album
+    property <int> menu-context: 0;
+    property <length> menu-x;
+    property <length> menu-y;
+    // Music servers
+    in property <[ServerItem]> servers;
+    in property <int> current-server: -1;
+    in property <string> server-name;
+    in property <[AlbumItem]> server-albums;
+    in property <string> server-status;
+    in property <bool> server-loading;
+    in property <bool> album-from-server: false;
+    in-out property <bool> server-dialog: false;
+    in-out property <int> server-kind: 0;
+    in property <string> server-dialog-status;
+    in property <bool> server-connecting: false;
+    callback open-server(int);
+    callback refresh-server();
+    callback filter-server(string);
+    callback open-server-album(int);
+    callback connect-server(int, string, string, string);
+    callback remove-server(int);
+    // "Fix album info" dialog
+    in-out property <bool> fix-visible: false;
+    in-out property <string> fix-artist;
+    in-out property <string> fix-album;
+    in property <[FixCandidate]> fix-candidates;
+    in property <int> fix-selected: -1;
+    in property <string> fix-status;
+    in property <bool> fix-busy: false;
+    in property <image> fix-preview;
+    in property <bool> fix-has-preview: false;
+    callback fix-search(string, string);
+    callback fix-select(int);
+    callback fix-choose-image();
+    callback fix-save(string, string);
+    callback fix-cancel();
+    callback track-menu-requested(int, int);
+    callback track-menu-action(int, int);
+
+    // Settings
+    in property <[string]> folders;
+    in property <string> app-version;
+    in property <string> log-path;
+    in-out property <bool> download-art: true;
+    callback download-art-changed(bool);
+
+    // Navigation & library
+    callback open-album(int);
+    callback open-artist(int);
+    callback show-all-albums();
+    callback play-album(bool);
+    callback play-album-track(int);
+    callback play-song(int);
+    callback library-search(string);
+    callback add-folder();
+    callback rescan();
+    // Radio
+    callback radio-select-tab(int);
+    callback radio-search(string);
+    callback radio-genre(string);
+    callback add-custom-stream(string, string);
+    callback play-station(int);
+    callback toggle-favorite(int);
+    // Queue
+    callback play-queue-index(int);
+    callback remove-queue-index(int);
+    callback clear-queue();
+    callback move-queue-index(int, int);
+    // Transport
+    callback toggle-play();
+    callback next();
+    callback previous();
+    callback seek(float);
+    callback seek-relative(float);
+    callback volume-changed(float);
+    callback toggle-shuffle();
+    callback cycle-repeat();
+    callback theme-selected(int);
+    callback density-changed(bool);
+    in property <bool> eq-open: false;
+    in property <bool> eq-enabled: false;
+    in property <[float]> eq-gains;
+    in property <float> eq-preamp: 0;
+    in property <int> eq-preset: 0;
+    in property <string> eq-curve;
+    callback eq-open-changed(bool);
+    callback eq-toggle(bool);
+    callback eq-preset-selected(int);
+    callback eq-band-changed(int, float);
+    callback eq-preamp-changed(float);
+    callback eq-reset();
+    callback eq-curve-aspect(float);
+    callback opacity-changed(float);
+    in property <bool> glass-available: false;
+    in property <bool> glass: false;
+    callback glass-changed(bool);
+    in property <int> glass-countdown: 0;
+    callback glass-keep();
+    callback remove-folder(int);
+
+    function show-track-menu(context: int, index: int, x: length, y: length) {
+        root.menu-context = context;
+        root.menu-x = x;
+        root.menu-y = y;
+        root.track-menu-requested(context, index);
+        track-menu.show();
+    }
+
+    /// Next/previous visualizer style.
+    public function step-viz(delta: int) {
+        root.viz-style = Math.mod(root.viz-style + delta + 5, 5);
+        root.viz-style-changed(root.viz-style);
+    }
+
+    /// Applies a theme mode (0 system, 1 light, 2 dark) to our colors and the std widgets.
+    public function apply-theme(mode: int) {
+        Theme.mode = mode;
+        if (mode == 1) {
+            Palette.color-scheme = ColorScheme.light;
+        } else if (mode == 2) {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = Theme.system-dark ? ColorScheme.dark : ColorScheme.light;
+        }
+    }
+
+    init => {
+        Theme.system-dark = Palette.color-scheme != ColorScheme.light;
+    }
+
+    // Keyboard shortcuts (keys typed into text fields are handled there first).
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.modifiers.control || event.modifiers.meta) {
+                if (event.text == Key.RightArrow) { root.next(); return accept; }
+                if (event.text == Key.LeftArrow) { root.previous(); return accept; }
+                if (event.text == "f" || event.text == "F") { search.focus-input(); return accept; }
+                return reject;
+            }
+            if (event.text == " ") { root.toggle-play(); return accept; }
+            if (event.text == Key.RightArrow) { root.seek-relative(5); return accept; }
+            if (event.text == Key.LeftArrow) { root.seek-relative(-5); return accept; }
+            if (event.text == Key.UpArrow) {
+                root.volume = Math.min(1.0, root.volume + 0.05);
+                root.volume-changed(root.volume);
+                return accept;
+            }
+            if (event.text == Key.DownArrow) {
+                root.volume = Math.max(0.0, root.volume - 0.05);
+                root.volume-changed(root.volume);
+                return accept;
+            }
+            if (event.text == "v" || event.text == "V") { root.viz-fullscreen = true; return accept; }
+            if (event.text == "s" || event.text == "S") { root.toggle-shuffle(); return accept; }
+            if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
+            if (event.text == "/") { search.focus-input(); return accept; }
+            return reject;
+        }
+
+        VerticalLayout {
+            HorizontalLayout {
+                vertical-stretch: 1;
+
+                // ---------------- Sidebar ----------------
+                Rectangle {
+                    width: 232px;
+                    background: Theme.sidebar.transparentize(Theme.see-through);
+                    VerticalLayout {
+                        padding: 16px;
+                        padding-top: 20px + root.titlebar-inset;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-bottom: 18px;
+                            spacing: 10px;
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                border-radius: 8px;
+                                background: #1E1B4B;
+                                // The app icon's tuning-fork "U".
+                                Image {
+                                    source: @image-url("icons/logo.svg");
+                                    width: 22px;
+                                    height: 22px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    colorize: #F5A524;
+                                }
+                            }
+                            Text {
+                                text: "Unitn";
+                                color: Theme.fg;
+                                font-size: 18px;
+                                font-weight: 800;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            text: "LIBRARY";
+                            color: Theme.fg-muted;
+                            font-size: 11px;
+                            font-weight: 700;
+                            letter-spacing: 1.2px;
+                        }
+                        Rectangle { height: 2px; }
+                        NavItem {
+                            icon: @image-url("icons/album.svg");
+                            label: "Albums";
+                            selected: root.page == 0 || (root.page == 5 && !root.album-from-server);
+                            clicked => {
+                                if (root.albums-filtered) { root.show-all-albums(); }
+                                root.page = 0;
+                            }
+                        }
+                        NavItem {
+                            icon: @image-url("icons/artist.svg");
+                            label: "Artists";
+                            selected: root.page == 1;
+                            clicked => { root.page = 1; }
+                        }
+                        NavItem {
+                            icon: @image-url("icons/song.svg");
+                            label: "Songs";
+                            selected: root.page == 2;
+                            clicked => { root.page = 2; }
+                        }
+                        Rectangle { height: 14px; }
+                        Text {
+                            text: "LISTEN";
+                            color: Theme.fg-muted;
+                            font-size: 11px;
+                            font-weight: 700;
+                            letter-spacing: 1.2px;
+                        }
+                        Rectangle { height: 2px; }
+                        NavItem {
+                            icon: @image-url("icons/radio.svg");
+                            label: "Radio";
+                            selected: root.page == 3;
+                            clicked => { root.page = 3; }
+                        }
+                        NavItem {
+                            icon: @image-url("icons/queue.svg");
+                            label: "Queue";
+                            selected: root.page == 4;
+                            clicked => { root.page = 4; }
+                        }
+                        NavItem {
+                            icon: @image-url("icons/visualizer.svg");
+                            label: "Now Playing";
+                            selected: root.page == 6;
+                            clicked => { root.page = 6; }
+                        }
+                        if root.servers.length > 0: Rectangle { height: 12px; }
+                        if root.servers.length > 0: Text {
+                            text: "SERVERS";
+                            color: Theme.fg-muted;
+                            font-size: 11px;
+                            font-weight: 700;
+                            letter-spacing: 1.2px;
+                        }
+                        for server[i] in root.servers: NavItem {
+                            icon: @image-url("icons/server.svg");
+                            label: server.name;
+                            selected: (root.page == 9 || (root.page == 5 && root.album-from-server)) && root.current-server == i;
+                            clicked => {
+                                root.open-server(i);
+                                root.page = 9;
+                            }
+                        }
+                        Rectangle { height: 12px; }
+                        HorizontalLayout {
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "PLAYLISTS";
+                                color: Theme.fg-muted;
+                                font-size: 11px;
+                                font-weight: 700;
+                                letter-spacing: 1.2px;
+                                vertical-alignment: center;
+                            }
+                            IconButton {
+                                icon: @image-url("icons/import.svg");
+                                size: 26px;
+                                icon-size: 15px;
+                                tint: Theme.fg-muted;
+                                clicked => { root.import-playlist(); }
+                            }
+                            IconButton {
+                                icon: @image-url("icons/plus.svg");
+                                size: 26px;
+                                icon-size: 16px;
+                                tint: Theme.fg-muted;
+                                clicked => {
+                                    root.new-playlist();
+                                    root.page = 8;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            min-height: 40px;
+                        pl-flick := Flickable {
+                            width: parent.width;
+                            height: parent.height;
+                            content-height: pl-list.preferred-height;
+                            pl-list := VerticalLayout {
+                                width: pl-flick.width;
+                                alignment: start;
+                                spacing: 2px;
+                                for pl[i] in root.playlists: NavItem {
+                                    icon: @image-url("icons/playlist.svg");
+                                    label: pl.name;
+                                    selected: root.page == 8 && root.current-playlist == i;
+                                    clicked => {
+                                        root.open-playlist(i);
+                                        root.page = 8;
+                                    }
+                                }
+                            }
+                        }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            PillButton {
+                                horizontal-stretch: 1;
+                                text: "Add folder";
+                                icon: @image-url("icons/plus.svg");
+                                clicked => { root.add-folder(); }
+                            }
+                            IconButton {
+                                icon: @image-url("icons/refresh.svg");
+                                size: 38px;
+                                icon-size: 18px;
+                                enabled: !root.scanning;
+                                clicked => { root.rescan(); }
+                            }
+                        }
+                        if root.library-status != "": Text {
+                            text: root.library-status;
+                            color: Theme.fg-muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        Rectangle { height: 8px; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            ThemeSwitch {
+                                horizontal-stretch: 1;
+                                selected(mode) => {
+                                    root.apply-theme(mode);
+                                    root.theme-selected(mode);
+                                }
+                            }
+                            IconButton {
+                                icon: @image-url("icons/settings.svg");
+                                size: 36px;
+                                icon-size: 18px;
+                                active: root.page == 7;
+                                tint: Theme.fg-muted;
+                                clicked => { root.page = 7; }
+                            }
+                        }
+                    }
+                }
+                Rectangle { width: 1px; background: Theme.border; }
+
+                // ---------------- Main area ----------------
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        height: 68px + root.titlebar-inset;
+                        padding-top: root.titlebar-inset;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 12px;
+                        if root.page == 5 || (root.page == 0 && root.albums-filtered): VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/back.svg");
+                                size: 34px;
+                                icon-size: 18px;
+                                clicked => {
+                                    if (root.page == 5) {
+                                        root.page = root.album-from-server ? 9 : 0;
+                                    } else {
+                                        root.show-all-albums();
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.page == 0 ? root.albums-title
+                                : root.page == 1 ? "Artists"
+                                : root.page == 2 ? "Songs"
+                                : root.page == 3 ? "Radio"
+                                : root.page == 4 ? "Queue"
+                                : root.page == 6 ? "Now Playing"
+                                : root.page == 7 ? "Settings"
+                                : root.page == 8 ? "Playlist"
+                                : root.page == 9 ? root.server-name
+                                : "";
+                            color: Theme.fg;
+                            font-size: 24px;
+                            font-weight: 800;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            search := SearchBox {
+                                width: 280px;
+                                placeholder: root.page == 3 ? "Search radio stations" : "Search songs, artists, albums";
+                                edited(text) => {
+                                    if (root.page == 3) {
+                                        root.radio-search(text);
+                                    } else {
+                                        root.library-search(text);
+                                        if (text != "") { root.page = 2; }
+                                    }
+                                }
+                                escaped => { keys.focus(); }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        if root.page == 0: AlbumsPage {
+                            width: parent.width;
+                            height: parent.height;
+                            albums: root.albums;
+                            library-empty: root.library-empty;
+                            scanning: root.scanning;
+                            open-album(i) => {
+                                root.open-album(i);
+                                root.page = 5;
+                            }
+                            add-folder => { root.add-folder(); }
+                        }
+                        if root.page == 9: ServerPage {
+                            width: parent.width;
+                            height: parent.height;
+                            albums: root.server-albums;
+                            status: root.server-status;
+                            loading: root.server-loading;
+                            open-album(i) => {
+                                root.open-server-album(i);
+                                root.page = 5;
+                            }
+                            refresh => { root.refresh-server(); }
+                            filter(text) => { root.filter-server(text); }
+                        }
+                        if root.page == 5: AlbumDetailPage {
+                            width: parent.width;
+                            height: parent.height;
+                            album: root.album;
+                            info: root.album-info;
+                            tracks: root.album-tracks;
+                            current-key: root.current-key;
+                            play(shuffled) => { root.play-album(shuffled); }
+                            play-track(i) => { root.play-album-track(i); }
+                            track-menu(i, x, y) => { root.show-track-menu(0, i, x, y); }
+                            album-menu(x, y) => { root.show-track-menu(3, -1, x, y); }
+                        density-changed(c) => {
+                            Theme.compact = c;
+                            root.density-changed(c);
+                        }
+                        }
+                        if root.page == 1: ArtistsPage {
+                            width: parent.width;
+                            height: parent.height;
+                            artists: root.artists;
+                            open-artist(i) => {
+                                root.open-artist(i);
+                                root.page = 0;
+                            }
+                        }
+                        if root.page == 2: SongsPage {
+                            width: parent.width;
+                            height: parent.height;
+                            songs: root.songs;
+                            current-key: root.current-key;
+                            searching: root.library-query != "";
+                            play-song(i) => { root.play-song(i); }
+                        track-menu(i, x, y) => { root.show-track-menu(1, i, x, y); }
+                        }
+                        if root.page == 3: RadioPage {
+                            width: parent.width;
+                            height: parent.height;
+                            stations: root.stations;
+                            tab: root.radio-tab;
+                            loading: root.radio-loading;
+                            status: root.radio-status;
+                            current-key: root.current-key;
+                            select-tab(t) => { root.radio-select-tab(t); }
+                            genre(g) => { root.radio-genre(g); }
+                            add-stream => { add-stream-popup.show(); }
+                            play-station(i) => { root.play-station(i); }
+                            toggle-favorite(i) => { root.toggle-favorite(i); }
+                        }
+                        if root.page == 6: NowPlayingPage {
+                            width: parent.width;
+                            height: parent.height;
+                            title: root.np-title;
+                            subtitle: root.np-subtitle;
+                            cover: root.np-cover;
+                            has-cover: root.np-has-cover;
+                            backdrop: root.np-backdrop;
+                            has-backdrop: root.np-has-backdrop;
+                            is-radio: root.is-radio;
+                            has-track: root.has-track;
+                            playing: root.playing;
+                            bars: root.viz-bars;
+                            peaks: root.viz-peaks;
+                            viz-style: root.viz-style;
+                            path-a: root.viz-path-a;
+                            path-b: root.viz-path-b;
+                            covered: root.viz-fullscreen;
+                            open-fullscreen => { root.viz-fullscreen = true; }
+                            step-viz(d) => { root.step-viz(d); }
+                            eq-open: root.eq-open;
+                            eq-enabled: root.eq-enabled;
+                            eq-gains: root.eq-gains;
+                            eq-preamp: root.eq-preamp;
+                            eq-preset: root.eq-preset;
+                            eq-curve: root.eq-curve;
+                            eq-open-changed(o) => { root.eq-open-changed(o); }
+                            eq-toggle(on) => { root.eq-toggle(on); }
+                            eq-preset-selected(i) => { root.eq-preset-selected(i); }
+                            eq-band-changed(i, v) => { root.eq-band-changed(i, v); }
+                            eq-preamp-changed(v) => { root.eq-preamp-changed(v); }
+                            eq-reset => { root.eq-reset(); }
+                            eq-curve-aspect(a) => { root.eq-curve-aspect(a); }
+                        }
+                        if root.page == 8: PlaylistPage {
+                        width: parent.width;
+                        height: parent.height;
+                        name: root.playlist-name;
+                        info: root.playlist-info;
+                        tracks: root.playlist-tracks;
+                        current-key: root.current-key;
+                        play(shuffled) => { root.play-playlist(shuffled); }
+                        play-track(i) => { root.play-playlist-track(i); }
+                        rename(name) => { root.rename-playlist(name); }
+                        delete => { root.delete-playlist(); }
+                        export => { root.export-playlist(); }
+                        track-menu(i, x, y) => { root.show-track-menu(2, i, x, y); }
+                        density-changed(c) => {
+                            Theme.compact = c;
+                            root.density-changed(c);
+                        }
+                    }
+                    if root.page == 7: SettingsPage {
+                            width: parent.width;
+                            height: parent.height;
+                            folders: root.folders;
+                            version: root.app-version;
+                            log-path: root.log-path;
+                            scanning: root.scanning;
+                            download-art: root.download-art;
+                            servers: root.servers;
+                            add-server => {
+                                root.server-dialog = true;
+                            }
+                            remove-server(i) => { root.remove-server(i); }
+                            download-art-changed(on) => {
+                                root.download-art = on;
+                                root.download-art-changed(on);
+                            }
+                            theme-selected(mode) => {
+                                root.apply-theme(mode);
+                                root.theme-selected(mode);
+                            }
+                            opacity-changed(v) => { root.opacity-changed(v); }
+                            glass-available: root.glass-available;
+                            glass: root.glass;
+                            glass-changed(on) => { root.glass-changed(on); }
+                            glass-countdown: root.glass-countdown;
+                            glass-keep => { root.glass-keep(); }
+                        density-changed(c) => {
+                            Theme.compact = c;
+                            root.density-changed(c);
+                        }
+                            add-folder => { root.add-folder(); }
+                            remove-folder(i) => { root.remove-folder(i); }
+                            rescan => { root.rescan(); }
+                        }
+                        if root.page == 4: QueuePage {
+                            width: parent.width;
+                            height: parent.height;
+                            queue: root.queue;
+                            play-index(i) => { root.play-queue-index(i); }
+                            remove-index(i) => { root.remove-queue-index(i); }
+                            clear => { root.clear-queue(); }
+                        save-as-playlist => { root.save-queue-as-playlist(); }
+                        move-index(from, to) => { root.move-queue-index(from, to); }
+                        }
+                    }
+                }
+            }
+
+            // ---------------- Now playing bar ----------------
+            Rectangle { height: 1px; background: Theme.border; }
+            Rectangle {
+                height: 88px;
+                background: Theme.bar.transparentize(Theme.see-through);
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 20px;
+                    spacing: 16px;
+
+                    Rectangle {
+                        width: 300px;
+                        np-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.page = 6; }
+                        }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            Artwork {
+                                size: 58px;
+                                source: root.np-cover;
+                                has-image: root.np-has-cover;
+                                placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 3px;
+                            Text {
+                                text: root.np-title;
+                                color: Theme.fg;
+                                font-size: 14px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.buffering ? "Buffering…" : root.np-subtitle;
+                                color: Theme.fg-muted;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    }
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("icons/shuffle.svg");
+                                    size: 32px;
+                                    icon-size: 18px;
+                                    active: root.shuffle;
+                                    tint: Theme.fg-muted;
+                                    clicked => { root.toggle-shuffle(); }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("icons/previous.svg");
+                                    enabled: root.has-track;
+                                    clicked => { root.previous(); }
+                                }
+                            }
+                            IconButton {
+                                icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                                primary: true;
+                                size: 44px;
+                                icon-size: 22px;
+                                clicked => { root.toggle-play(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("icons/next.svg");
+                                    enabled: root.has-track;
+                                    clicked => { root.next(); }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: root.repeat-mode == 2 ? @image-url("icons/repeat-one.svg") : @image-url("icons/repeat.svg");
+                                    size: 32px;
+                                    icon-size: 18px;
+                                    active: root.repeat-mode > 0;
+                                    tint: Theme.fg-muted;
+                                    clicked => { root.cycle-repeat(); }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Text {
+                                width: 48px;
+                                text: root.position-text;
+                                color: Theme.fg-muted;
+                                font-size: 11px;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                            SeekBar {
+                                horizontal-stretch: 1;
+                                value: root.position;
+                                enabled: root.seekable;
+                                changed(v) => { root.seek(v); }
+                            }
+                            Text {
+                                width: 48px;
+                                text: root.duration-text;
+                                color: root.is-radio ? Theme.accent : Theme.fg-muted;
+                                font-size: 11px;
+                                font-weight: root.is-radio ? 700 : 400;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        width: 300px;
+                        alignment: end;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 104px;
+                            mini := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.page = 6; }
+                            }
+                            Spectrum {
+                                x: 0px;
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width;
+                                height: 30px;
+                                gap: 3px;
+                                bars: root.mini-bars;
+                                peaks: root.mini-peaks;
+                            }
+                        }
+                        Rectangle { width: 16px; }
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: root.volume <= 0.001 ? @image-url("icons/volume-off.svg") : @image-url("icons/volume.svg");
+                                width: 18px;
+                                height: 18px;
+                                colorize: Theme.fg-muted;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            SeekBar {
+                                width: 120px;
+                                value: root.volume;
+                                changed(v) => {
+                                    root.volume = v;
+                                    root.volume-changed(v);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- Song menu ----------------
+    track-menu := PopupWindow {
+        width: 240px;
+        height: menu-box.preferred-height;
+        x: Math.max(8px, Math.min(root.menu-x - 212px, root.width - 248px));
+        y: Math.max(8px, Math.min(root.menu-y, root.height - self.height - 8px));
+        menu-box := Rectangle {
+            border-radius: 12px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 1px;
+                MenuRow {
+                    text: root.menu-context == 3 ? "Play album next" : "Play next";
+                    icon: @image-url("icons/next.svg");
+                    clicked => { root.track-menu-action(0, -1); }
+                }
+                MenuRow {
+                    text: "Add to queue";
+                    icon: @image-url("icons/queue.svg");
+                    clicked => { root.track-menu-action(1, -1); }
+                }
+                Rectangle { height: 1px; background: Theme.border; }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    height: 26px;
+                    Text {
+                        text: "ADD TO PLAYLIST";
+                        color: Theme.fg-muted;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1px;
+                        vertical-alignment: center;
+                    }
+                }
+                for pl[i] in root.playlists: MenuRow {
+                    text: pl.name;
+                    icon: @image-url("icons/playlist.svg");
+                    clicked => { root.track-menu-action(2, i); }
+                }
+                MenuRow {
+                    text: "New playlist";
+                    icon: @image-url("icons/plus.svg");
+                    clicked => { root.track-menu-action(3, -1); }
+                }
+                if root.menu-context == 3 && !root.album-from-server: Rectangle { height: 1px; background: Theme.border; }
+                if root.menu-context == 3 && !root.album-from-server: MenuRow {
+                    text: "Fix album info…";
+                    icon: @image-url("icons/album.svg");
+                    clicked => { root.track-menu-action(5, -1); }
+                }
+                if root.menu-context == 2: Rectangle { height: 1px; background: Theme.border; }
+                if root.menu-context == 2: MenuRow {
+                    text: "Remove from playlist";
+                    icon: @image-url("icons/trash.svg");
+                    danger: true;
+                    clicked => { root.track-menu-action(4, -1); }
+                }
+            }
+        }
+    }
+
+    // ---------------- "Add stream URL" dialog ----------------
+    add-stream-popup := PopupWindow {
+        x: (root.width - 440px) / 2;
+        y: (root.height - 250px) / 2;
+        width: 440px;
+        height: 250px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            border-radius: 14px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: "Add a radio stream";
+                    color: Theme.fg;
+                    font-size: 16px;
+                    font-weight: 700;
+                }
+                stream-name := TextField { placeholder: "Name (optional)"; }
+                stream-url := TextField {
+                    placeholder: "Stream address, e.g. https://example.com/live.mp3";
+                    accepted => {
+                        root.add-custom-stream(stream-name.text, stream-url.text);
+                        add-stream-popup.close();
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Cancel";
+                        has-icon: false;
+                        clicked => { add-stream-popup.close(); }
+                    }
+                    PillButton {
+                        text: "Add to Favorites";
+                        has-icon: false;
+                        primary: true;
+                        clicked => {
+                            root.add-custom-stream(stream-name.text, stream-url.text);
+                            add-stream-popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- "Add server" dialog ----------------
+    if root.server-dialog: Rectangle {
+        background: #00000080;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.server-dialog = false;
+                    return accept;
+                }
+                reject
+            }
+        }
+        Rectangle {
+            width: Math.min(480px, root.width - 48px);
+            height: server-box.preferred-height;
+            border-radius: 16px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000060;
+            TouchArea { }
+            server-box := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Add a music server";
+                    color: Theme.fg;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Chip { text: "Jellyfin"; selected: root.server-kind == 0; clicked => { root.server-kind = 0; } }
+                    Chip { text: "Plex"; selected: root.server-kind == 1; clicked => { root.server-kind = 1; } }
+                }
+                server-url := TextField {
+                    placeholder: root.server-kind == 0 ? "Address, e.g. 192.168.1.10 or http://nas:8096" : "Address, e.g. 192.168.1.10 or http://nas:32400";
+                }
+                server-user := TextField {
+                    placeholder: root.server-kind == 0 ? "User name" : "Plex account e-mail or user name (optional)";
+                }
+                server-secret := TextField {
+                    placeholder: root.server-kind == 0 ? "Password" : "Password, or a Plex token if you left the name empty";
+                    input-type: InputType.password;
+                    accepted => { root.connect-server(root.server-kind, server-url.text, server-user.text, server-secret.text); }
+                }
+                Text {
+                    text: root.server-dialog-status != "" ? root.server-dialog-status
+                        : root.server-kind == 0
+                            ? "Your password is only used to sign in; Unitn keeps the access token the server gives it."
+                            : "Signing in with your Plex account gets an access token from plex.tv. With two-factor sign-in, type the 6-digit code right after your password.";
+                    color: root.server-dialog-status != "" ? Theme.fg : Theme.fg-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Cancel";
+                        has-icon: false;
+                        clicked => { root.server-dialog = false; }
+                    }
+                    PillButton {
+                        text: root.server-connecting ? "Connecting…" : "Connect";
+                        has-icon: false;
+                        primary: true;
+                        clicked => { root.connect-server(root.server-kind, server-url.text, server-user.text, server-secret.text); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- "Fix album info" dialog ----------------
+    if root.fix-visible: Rectangle {
+        background: #00000080;
+        TouchArea { }  // modal: swallow clicks outside the dialog
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.fix-cancel();
+                    return accept;
+                }
+                reject
+            }
+        }
+        Rectangle {
+            width: Math.min(760px, root.width - 48px);
+            height: Math.min(580px, root.height - 48px);
+            border-radius: 16px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000060;
+            TouchArea { }
+            VerticalLayout {
+                padding: 22px;
+                spacing: 14px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "Fix album info";
+                        color: Theme.fg;
+                        font-size: 18px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: "Search MusicBrainz for the right album and pick it, or type the names yourself. You can also use your own image as the cover.";
+                        color: Theme.fg-muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    TextField {
+                        placeholder: "Artist";
+                        text <=> root.fix-artist;
+                        accepted => { root.fix-search(root.fix-artist, root.fix-album); }
+                    }
+                    TextField {
+                        placeholder: "Album";
+                        text <=> root.fix-album;
+                        accepted => { root.fix-search(root.fix-artist, root.fix-album); }
+                    }
+                    PillButton {
+                        text: "Search";
+                        icon: @image-url("icons/search.svg");
+                        clicked => { root.fix-search(root.fix-artist, root.fix-album); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 18px;
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        Artwork {
+                            size: 190px;
+                            source: root.fix-preview;
+                            has-image: root.fix-has-preview;
+                        }
+                        PillButton {
+                            text: "Choose image…";
+                            icon: @image-url("icons/album.svg");
+                            clicked => { root.fix-choose-image(); }
+                        }
+                        Text {
+                            width: 190px;
+                            text: root.fix-status;
+                            color: Theme.fg-muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        clip: true;
+                        if root.fix-candidates.length == 0: Text {
+                            text: root.fix-busy ? "Searching…" : "No results yet";
+                            color: Theme.fg-muted;
+                            font-size: 13px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        ListView {
+                            for c[i] in root.fix-candidates: Rectangle {
+                                height: 60px;
+                                background: i == root.fix-selected ? Theme.accent-soft
+                                    : row-touch.has-hover ? Theme.surface-hover
+                                    : Math.mod(i, 2) == 1 ? (Theme.dark ? #ffffff0a : #0000000a) : transparent;
+                                row-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.fix-select(i); }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 12px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Artwork {
+                                            size: 44px;
+                                            source: c.thumb;
+                                            has-image: c.has-thumb;
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        Text {
+                                            text: c.title;
+                                            color: Theme.fg;
+                                            font-size: 14px;
+                                            font-weight: 600;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: c.info;
+                                            color: Theme.fg-muted;
+                                            font-size: 12px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    PillButton {
+                        text: "Cancel";
+                        has-icon: false;
+                        clicked => { root.fix-cancel(); }
+                    }
+                    PillButton {
+                        text: root.fix-busy ? "Saving…" : "Save";
+                        has-icon: false;
+                        primary: true;
+                        clicked => { root.fix-save(root.fix-artist, root.fix-album); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- Full-screen visualizer ----------------
+    if root.viz-fullscreen: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        background: Theme.dark ? #050508 : Theme.bg;
+
+        if root.np-has-backdrop: Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.np-backdrop;
+            image-fit: ImageFit.cover;
+            opacity: Theme.dark ? 0.3 : 0.22;
+        }
+
+        Visualizer {
+            x: parent.width * 0.06;
+            y: parent.height * 0.08;
+            width: parent.width * 0.88;
+            height: parent.height * 0.72;
+            style: root.viz-style;
+            bars: root.viz-bars;
+            peaks: root.viz-peaks;
+            path-a: root.viz-path-a;
+            path-b: root.viz-path-b;
+            cover: root.np-cover;
+            has-cover: root.np-has-cover;
+            gap: 5px;
+        }
+
+        FocusScope {
+            width: parent.width;
+            height: parent.height;
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.RightArrow) {
+                    root.step-viz(1);
+                    return accept;
+                }
+                if (event.text == Key.LeftArrow) {
+                    root.step-viz(-1);
+                    return accept;
+                }
+                if (event.text == Key.Escape || event.text == "v" || event.text == "V") {
+                    root.viz-fullscreen = false;
+                    keys.focus();
+                    return accept;
+                }
+                if (event.text == " ") {
+                    root.toggle-play();
+                    return accept;
+                }
+                return reject;
+            }
+            TouchArea {
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        if (event.button == PointerEventButton.left) {
+                            root.step-viz(1);
+                        } else if (event.button == PointerEventButton.right) {
+                            root.step-viz(-1);
+                        }
+                    }
+                }
+                double-clicked => {
+                    root.step-viz(-2); // undo the two clicks of the double-click
+                    root.viz-fullscreen = false;
+                    keys.focus();
+                }
+            }
+        }
+
+        // Track info and hints.
+        VerticalLayout {
+            x: parent.width * 0.06;
+            y: parent.height * 0.84;
+            width: parent.width * 0.88;
+            spacing: 4px;
+            Text {
+                text: root.has-track ? root.np-title : "Nothing playing";
+                color: Theme.fg;
+                font-size: 26px;
+                font-weight: 800;
+                overflow: elide;
+            }
+            Text {
+                text: root.np-subtitle;
+                color: Theme.fg-muted;
+                font-size: 15px;
+                overflow: elide;
+            }
+            Text {
+                text: (root.viz-style == 0 ? "Spectrum"
+                    : root.viz-style == 1 ? "Mirror"
+                    : root.viz-style == 2 ? "Wave"
+                    : root.viz-style == 3 ? "Oscilloscope"
+                    : "Radial")
+                    + "   ·   ← → or left/right click: change style   ·   double-click or Esc: exit   ·   Space: play/pause";
+                color: Theme.fg-muted;
+                font-size: 12px;
+            }
+        }
+
+        VizControls {
+            x: parent.width - self.width - 20px;
+            y: 20px + root.titlebar-inset;
+            style: root.viz-style;
+            fullscreen: true;
+            step(d) => { root.step-viz(d); }
+            toggle-fullscreen => {
+                root.viz-fullscreen = false;
+                keys.focus();
+            }
+        }
+    }
+
+    // Drop target shown while files are dragged over the window.
+    if root.drop-hover: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        background: Theme.dark ? #0f0f13d0 : #f6f6f9d8;
+        Rectangle {
+            x: 24px;
+            y: 24px;
+            width: parent.width - 48px;
+            height: parent.height - 48px;
+            border-radius: 20px;
+            border-width: 3px;
+            border-color: Theme.accent;
+            background: Theme.accent-soft;
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text {
+                    text: "Drop to play";
+                    color: Theme.fg;
+                    font-size: 28px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Music files play right away · folders are added to your library · M3U files become playlists";
+                    color: Theme.fg-muted;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Transient message (errors, "Added folder", …)
+    if root.toast != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 88px - self.height - 16px;
+        width: Math.min(560px, toast-text.preferred-width + 40px);
+        height: 40px;
+        border-radius: 20px;
+        background: Theme.dark ? #2d2d38 : #1f1f26;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000040;
+        toast-text := Text {
+            x: 20px;
+            width: parent.width - 40px;
+            height: parent.height;
+            text: root.toast;
+            color: #ffffff;
+            font-size: 13px;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+}
