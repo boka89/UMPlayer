@@ -57,6 +57,20 @@ CREATE TABLE IF NOT EXISTS album_fixes (
     cover       TEXT,
     PRIMARY KEY (orig_artist, orig_album)
 );
+CREATE TABLE IF NOT EXISTS remote_tracks (
+    path         TEXT PRIMARY KEY,
+    title        TEXT NOT NULL DEFAULT '',
+    artist       TEXT NOT NULL DEFAULT '',
+    album        TEXT NOT NULL DEFAULT '',
+    album_artist TEXT NOT NULL DEFAULT '',
+    track_no     INTEGER NOT NULL DEFAULT 0,
+    disc_no      INTEGER NOT NULL DEFAULT 0,
+    year         INTEGER NOT NULL DEFAULT 0,
+    duration_ms  INTEGER NOT NULL DEFAULT 0,
+    cover        TEXT,
+    stream_ext   TEXT,
+    stream_ref   TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS stations (
     uuid    TEXT PRIMARY KEY,
     name    TEXT NOT NULL,
@@ -95,6 +109,26 @@ fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
         genre: r.get(9)?,
         duration_ms: r.get::<_, i64>(10)?.max(0) as u64,
         cover: r.get::<_, Option<String>>(11)?.map(PathBuf::from),
+        ..Default::default()
+    })
+}
+
+const REMOTE_COLS: &str =
+    "path, title, artist, album, album_artist, track_no, disc_no, year, duration_ms, cover, stream_ext";
+
+fn remote_from_row(r: &Row) -> rusqlite::Result<Track> {
+    Ok(Track {
+        path: PathBuf::from(r.get::<_, String>(0)?),
+        title: r.get(1)?,
+        artist: r.get(2)?,
+        album: r.get(3)?,
+        album_artist: r.get(4)?,
+        track_no: r.get::<_, i64>(5)? as u32,
+        disc_no: r.get::<_, i64>(6)? as u32,
+        year: r.get::<_, i64>(7)? as u32,
+        duration_ms: r.get::<_, i64>(8)?.max(0) as u64,
+        cover: r.get::<_, Option<String>>(9)?.map(PathBuf::from),
+        stream_ext: r.get(10)?,
         ..Default::default()
     })
 }
@@ -397,10 +431,14 @@ impl Library {
     pub fn playlist_tracks(&self, id: i64) -> Result<Vec<Track>> {
         let sql = format!("SELECT {TRACK_COLS} FROM tracks WHERE path = ?1");
         let mut st = self.conn.prepare(&sql)?;
+        let mut remote = self.conn.prepare(&format!("SELECT {REMOTE_COLS} FROM remote_tracks WHERE path = ?1"))?;
         let mut out = Vec::new();
         for path in self.playlist_paths(id)? {
             let p = path_str(&path);
-            let found = st.query_map(params![p], track_from_row)?.next().transpose()?;
+            let mut found = st.query_map(params![p], track_from_row)?.next().transpose()?;
+            if found.is_none() {
+                found = remote.query_map(params![p], remote_from_row)?.next().transpose()?;
+            }
             out.push(found.unwrap_or_else(|| Track {
                 title: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
                 artist: "Unknown Artist".into(),
@@ -434,6 +472,39 @@ impl Library {
                 Err(e)
             }
         }
+    }
+
+    /// Remembers server songs (with the credential-free part of their stream
+    /// address) so playlists can show and play them later.
+    pub fn remember_remote_tracks(&self, tracks: &[(Track, String)]) -> Result<()> {
+        let mut st = self.conn.prepare_cached(
+            "INSERT OR REPLACE INTO remote_tracks
+             (path, title, artist, album, album_artist, track_no, disc_no, year, duration_ms, cover, stream_ext, stream_ref)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        )?;
+        for (t, stream_ref) in tracks {
+            st.execute(params![
+                path_str(&t.path),
+                t.title,
+                t.artist,
+                t.album,
+                t.album_artist,
+                t.track_no as i64,
+                t.disc_no as i64,
+                t.year as i64,
+                t.duration_ms as i64,
+                t.cover.as_deref().map(path_str),
+                t.stream_ext,
+                stream_ref,
+            ])?;
+        }
+        Ok(())
+    }
+
+    /// The saved stream reference of a remembered server song.
+    pub fn remote_stream_ref(&self, path: &Path) -> Result<Option<String>> {
+        let mut st = self.conn.prepare_cached("SELECT stream_ref FROM remote_tracks WHERE path = ?1")?;
+        Ok(st.query_map(params![path_str(path)], |r| r.get::<_, String>(0))?.next().transpose()?)
     }
 
     pub fn add_to_playlist(&self, id: i64, paths: &[PathBuf]) -> Result<()> {
@@ -647,6 +718,33 @@ mod tests {
             duration_ms: 1000,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn playlists_hold_server_songs() {
+        let lib = Library::open_in_memory().unwrap();
+        lib.upsert_track(&track("/m/a/1.mp3", "Local", "Band", "Album", 1), 1).unwrap();
+        let remote = Track {
+            path: PathBuf::from("jellyfin://nas:8096/T1"),
+            title: "From the server".into(),
+            artist: "Server Band".into(),
+            album: "Server Album".into(),
+            duration_ms: 5000,
+            stream_ext: Some("flac".into()),
+            stream_url: Some("http://nas:8096/Audio/T1/stream?static=true&api_key=SECRET".into()),
+            ..Default::default()
+        };
+        lib.remember_remote_tracks(&[(remote.clone(), "/Audio/T1/stream?static=true".into())]).unwrap();
+        let id = lib.create_playlist("Mix").unwrap();
+        lib.add_to_playlist(id, &[PathBuf::from("/m/a/1.mp3"), remote.path.clone()]).unwrap();
+
+        let tracks = lib.playlist_tracks(id).unwrap();
+        assert_eq!(tracks[0].title, "Local");
+        assert_eq!(tracks[1].title, "From the server");
+        assert_eq!(tracks[1].album, "Server Album");
+        assert_eq!(tracks[1].stream_ext.as_deref(), Some("flac"));
+        assert_eq!(tracks[1].stream_url, None);
+        assert_eq!(lib.remote_stream_ref(&remote.path).unwrap().as_deref(), Some("/Audio/T1/stream?static=true"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! Music from your own media servers: Jellyfin and Plex.
+//! Music from your own media servers: Jellyfin, Plex and OpenSubsonic
+//! servers (Navidrome, Gonic, Airsonic and other Subsonic-compatible ones).
 //!
 //! Both are reached over their HTTP APIs with an access token. Songs are
 //! streamed as the original files (see [`crate::audio::Source::Remote`]), so
@@ -16,6 +17,8 @@ use crate::model::Track;
 pub enum ServerKind {
     Jellyfin,
     Plex,
+    /// OpenSubsonic / Subsonic API (Navidrome, Gonic, Airsonic, …).
+    Subsonic,
 }
 
 impl ServerKind {
@@ -23,6 +26,7 @@ impl ServerKind {
         match self {
             ServerKind::Jellyfin => "Jellyfin",
             ServerKind::Plex => "Plex",
+            ServerKind::Subsonic => "Subsonic",
         }
     }
 
@@ -30,6 +34,7 @@ impl ServerKind {
         match self {
             ServerKind::Jellyfin => "jellyfin",
             ServerKind::Plex => "plex",
+            ServerKind::Subsonic => "subsonic",
         }
     }
 }
@@ -43,7 +48,7 @@ pub struct ServerConfig {
     /// Base address, e.g. `http://192.168.1.10:8096`.
     pub url: String,
     pub user: String,
-    /// Access token (never the password).
+    /// Access token (never the password). For Subsonic: `token:salt`.
     pub token: String,
     /// Jellyfin user id.
     #[serde(default)]
@@ -84,6 +89,7 @@ pub fn normalize_url(url: &str, kind: ServerKind) -> String {
         match kind {
             ServerKind::Jellyfin => ":8096",
             ServerKind::Plex => ":32400",
+            ServerKind::Subsonic => ":4533",
         }
     };
     format!("http://{url}{port}")
@@ -134,7 +140,52 @@ pub fn connect(kind: ServerKind, url: &str, user: &str, secret: &str) -> Result<
     match kind {
         ServerKind::Jellyfin => jellyfin::connect(&url, user.trim(), secret, device_id),
         ServerKind::Plex => plex::connect(&url, user.trim(), secret, device_id),
+        ServerKind::Subsonic => subsonic::connect(&url, user.trim(), secret, device_id),
     }
+}
+
+/// Up to 50 songs on the server matching `query` (title, artist or album).
+pub fn search_tracks(cfg: &ServerConfig, query: &str) -> Result<Vec<Track>> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    match cfg.kind {
+        ServerKind::Jellyfin => jellyfin::search(cfg, query),
+        ServerKind::Plex => plex::search(cfg, query),
+        ServerKind::Subsonic => subsonic::search(cfg, query),
+    }
+}
+
+/// The address a server song streams from, with the current credentials.
+/// `stream_ref` is what [`stream_ref`] returned (a path without tokens).
+pub fn stream_url(cfg: &ServerConfig, stream_ref: &str) -> String {
+    let sep = if stream_ref.contains('?') { '&' } else { '?' };
+    let auth = match cfg.kind {
+        ServerKind::Jellyfin => format!("deviceId={}&api_key={}", cfg.device_id, cfg.token),
+        ServerKind::Plex => format!("X-Plex-Token={}", cfg.token),
+        ServerKind::Subsonic => subsonic::auth_query(cfg),
+    };
+    format!("{}{stream_ref}{sep}{auth}", cfg.url)
+}
+
+/// The part of a song's stream address that can be saved (in playlists):
+/// without the server address and without any credentials.
+pub fn stream_ref(cfg: &ServerConfig, stream_url: &str) -> Option<String> {
+    let rest = stream_url.strip_prefix(cfg.url.as_str())?;
+    let marker = match cfg.kind {
+        ServerKind::Jellyfin => "deviceId=",
+        ServerKind::Plex => "X-Plex-Token=",
+        ServerKind::Subsonic => "u=",
+    };
+    let cut = ['?', '&'].iter().filter_map(|c| rest.find(&format!("{c}{marker}"))).min()?;
+    Some(rest[..cut].to_string())
+}
+
+/// Whether a song key (`Track::path` of a server song) belongs to `cfg`.
+pub fn owns_track(cfg: &ServerConfig, key: &std::path::Path) -> bool {
+    let key = key.to_string_lossy();
+    key.starts_with(&format!("{}://{}/", cfg.kind.scheme(), host_of(&cfg.url)))
 }
 
 /// A pending "Sign in with Plex" request: the user approves it on plex.tv
@@ -174,6 +225,7 @@ pub fn albums(cfg: &ServerConfig) -> Result<Vec<ServerAlbum>> {
     let mut list = match cfg.kind {
         ServerKind::Jellyfin => jellyfin::albums(cfg)?,
         ServerKind::Plex => plex::albums(cfg)?,
+        ServerKind::Subsonic => subsonic::albums(cfg)?,
     };
     list.sort_by_cached_key(|a| (a.artist.to_lowercase(), a.title.to_lowercase()));
     Ok(list)
@@ -184,6 +236,7 @@ pub fn album_tracks(cfg: &ServerConfig, album: &ServerAlbum) -> Result<Vec<Track
     let mut tracks = match cfg.kind {
         ServerKind::Jellyfin => jellyfin::album_tracks(cfg, album)?,
         ServerKind::Plex => plex::album_tracks(cfg, album)?,
+        ServerKind::Subsonic => subsonic::album_tracks(cfg, album)?,
     };
     tracks.sort_by_key(|t| (t.disc_no, t.track_no));
     Ok(tracks)
@@ -333,20 +386,46 @@ mod jellyfin {
                 ("Fields", "ProductionYear,Container"),
             ],
         )?;
-        Ok(parse_tracks(cfg, album, &json))
+        Ok(parse_tracks(cfg, Some(album), &json))
     }
 
-    pub(super) fn parse_tracks(cfg: &ServerConfig, album: &ServerAlbum, json: &Value) -> Vec<Track> {
+    pub fn search(cfg: &ServerConfig, query: &str) -> Result<Vec<Track>> {
+        let json = get(
+            cfg,
+            "/Items",
+            &[
+                ("userId", &cfg.user_id),
+                ("searchTerm", query),
+                ("IncludeItemTypes", "Audio"),
+                ("Recursive", "true"),
+                ("Limit", "50"),
+                ("Fields", "ProductionYear,Container"),
+            ],
+        )?;
+        Ok(parse_tracks(cfg, None, &json))
+    }
+
+    /// Songs from an `/Items` answer. Without `album`, the album comes from
+    /// each song's own fields (search results).
+    pub(super) fn parse_tracks(cfg: &ServerConfig, album: Option<&ServerAlbum>, json: &Value) -> Vec<Track> {
         let Some(items) = json["Items"].as_array() else { return Vec::new() };
         items
             .iter()
             .filter_map(|it| {
                 let id = it["Id"].as_str()?.to_string();
+                let (album_title, album_artist, album_year) = match album {
+                    Some(a) => (a.title.clone(), a.artist.clone(), a.year),
+                    None => (
+                        str_of(&it["Album"]),
+                        it["AlbumArtist"].as_str().filter(|a| !a.is_empty()).unwrap_or("Unknown Artist").to_string(),
+                        0,
+                    ),
+                };
                 let artist = it["Artists"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "))
                     .filter(|a| !a.is_empty())
-                    .unwrap_or_else(|| album.artist.clone());
+                    .unwrap_or_else(|| album_artist.clone());
                 // Container can be a list ("mov,mp4,m4a,…"); take the audio one.
                 let ext = it["Container"].as_str().and_then(|c| {
                     let parts: Vec<&str> = c.split(',').collect();
@@ -356,16 +435,13 @@ mod jellyfin {
                     path: track_key(cfg, &id),
                     title: str_of(&it["Name"]),
                     artist,
-                    album: album.title.clone(),
-                    album_artist: album.artist.clone(),
+                    album: album_title,
+                    album_artist,
                     track_no: u32_of(&it["IndexNumber"]),
                     disc_no: u32_of(&it["ParentIndexNumber"]),
-                    year: u32_of(&it["ProductionYear"]).max(album.year),
+                    year: u32_of(&it["ProductionYear"]).max(album_year),
                     duration_ms: it["RunTimeTicks"].as_u64().unwrap_or(0) / 10_000,
-                    stream_url: Some(format!(
-                        "{}/Audio/{id}/stream?static=true&deviceId={}&api_key={}",
-                        cfg.url, cfg.device_id, cfg.token
-                    )),
+                    stream_url: Some(stream_url(cfg, &format!("/Audio/{id}/stream?static=true"))),
                     stream_ext: ext,
                     ..Default::default()
                 })
@@ -642,40 +718,265 @@ mod plex {
 
     pub fn album_tracks(cfg: &ServerConfig, album: &ServerAlbum) -> Result<Vec<Track>> {
         let json = get(cfg, &format!("/library/metadata/{}/children", album.id), &[])?;
-        Ok(parse_tracks(cfg, album, &json))
+        Ok(parse_tracks(cfg, Some(album), &json["MediaContainer"]["Metadata"]))
     }
 
-    pub(super) fn parse_tracks(cfg: &ServerConfig, album: &ServerAlbum, json: &Value) -> Vec<Track> {
-        let Some(items) = json["MediaContainer"]["Metadata"].as_array() else { return Vec::new() };
+    pub fn search(cfg: &ServerConfig, query: &str) -> Result<Vec<Track>> {
+        let json = get(cfg, "/hubs/search", &[("query", query), ("limit", "50")])?;
+        Ok(parse_search(cfg, &json))
+    }
+
+    pub(super) fn parse_search(cfg: &ServerConfig, json: &Value) -> Vec<Track> {
+        json["MediaContainer"]["Hub"]
+            .as_array()
+            .map(|hubs| {
+                hubs.iter()
+                    .filter(|h| h["type"].as_str() == Some("track"))
+                    .flat_map(|h| parse_tracks(cfg, None, &h["Metadata"]))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Songs from a `Metadata` list. Without `album`, the album comes from
+    /// each song's own fields (search results).
+    pub(super) fn parse_tracks(cfg: &ServerConfig, album: Option<&ServerAlbum>, items: &Value) -> Vec<Track> {
+        let Some(items) = items.as_array() else { return Vec::new() };
         items
             .iter()
             .filter_map(|it| {
                 let id = it["ratingKey"].as_str()?.to_string();
                 let media = &it["Media"][0];
                 let part = media["Part"][0]["key"].as_str()?;
+                let (album_title, album_artist, album_year) = match album {
+                    Some(a) => (a.title.clone(), a.artist.clone(), a.year),
+                    None => (
+                        str_of(&it["parentTitle"]),
+                        it["grandparentTitle"].as_str().filter(|a| !a.is_empty()).unwrap_or("Unknown Artist").to_string(),
+                        u32_of(&it["parentYear"]).max(u32_of(&it["year"])),
+                    ),
+                };
                 let artist = it["originalTitle"]
                     .as_str()
                     .or(it["grandparentTitle"].as_str())
                     .filter(|a| !a.is_empty())
                     .map(str::to_string)
-                    .unwrap_or_else(|| album.artist.clone());
+                    .unwrap_or_else(|| album_artist.clone());
                 Some(Track {
                     path: track_key(cfg, &id),
                     title: str_of(&it["title"]),
                     artist,
-                    album: album.title.clone(),
-                    album_artist: album.artist.clone(),
+                    album: album_title,
+                    album_artist,
                     track_no: u32_of(&it["index"]),
                     disc_no: u32_of(&it["parentIndex"]),
-                    year: album.year,
+                    year: album_year,
                     duration_ms: it["duration"].as_u64().unwrap_or(0),
-                    stream_url: Some(format!("{}{part}?X-Plex-Token={}", cfg.url, cfg.token)),
+                    stream_url: Some(stream_url(cfg, part)),
                     stream_ext: media["container"].as_str().map(str::to_string),
                     ..Default::default()
                 })
             })
             .collect()
     }
+}
+
+mod subsonic {
+    use super::*;
+
+    const API_VERSION: &str = "1.16.1";
+
+    /// Credentials for every request: user, token = md5(password + salt), salt.
+    pub fn auth_query(cfg: &ServerConfig) -> String {
+        let (token, salt) = cfg.token.split_once(':').unwrap_or((&cfg.token, ""));
+        format!("u={}&t={token}&s={salt}&v={API_VERSION}&c=Unitn", percent_encode(&cfg.user))
+    }
+
+    fn get(cfg: &ServerConfig, method: &str, query: &[(&str, &str)]) -> Result<Value> {
+        let mut url = format!("{}/rest/{method}.view?{}&f=json", cfg.url, auth_query(cfg));
+        for (k, v) in query {
+            url.push_str(&format!("&{k}={}", percent_encode(v)));
+        }
+        let json: Value = agent()
+            .get(&url)
+            .set("Accept", "application/json")
+            .call()
+            .map_err(|e| explain(e, "Subsonic"))?
+            .into_json()
+            .context("this doesn't look like a Subsonic / Navidrome server")?;
+        let resp = &json["subsonic-response"];
+        if resp["status"].as_str() != Some("ok") {
+            let code = resp["error"]["code"].as_u64().unwrap_or(0);
+            let msg = resp["error"]["message"].as_str().unwrap_or("unknown error");
+            if code == 40 || code == 41 {
+                bail!("Subsonic: wrong user name or password");
+            }
+            if resp.is_null() {
+                bail!("this doesn't look like a Subsonic / Navidrome server");
+            }
+            bail!("Subsonic: {msg}");
+        }
+        Ok(resp.clone())
+    }
+
+    pub fn connect(url: &str, user: &str, password: &str, device_id: String) -> Result<ServerConfig> {
+        if user.is_empty() {
+            bail!("Enter your user name");
+        }
+        if password.is_empty() {
+            bail!("Enter your password");
+        }
+        // The password itself is never stored: only md5(password + salt)
+        // with a random salt, which the server checks on every request.
+        let salt = new_device_id().trim_start_matches("unitn-").to_string();
+        let token = super::md5_hex(format!("{password}{salt}").as_bytes());
+        let mut cfg = ServerConfig {
+            kind: ServerKind::Subsonic,
+            name: "Subsonic".into(),
+            url: url.to_string(),
+            user: user.to_string(),
+            token: format!("{token}:{salt}"),
+            user_id: String::new(),
+            device_id,
+        };
+        let ping = get(&cfg, "ping", &[])?;
+        if let Some(kind) = ping["type"].as_str().filter(|t| !t.is_empty()) {
+            let mut name: Vec<char> = kind.chars().collect();
+            name[0] = name[0].to_ascii_uppercase();
+            cfg.name = name.into_iter().collect();
+        }
+        Ok(cfg)
+    }
+
+    pub fn albums(cfg: &ServerConfig) -> Result<Vec<ServerAlbum>> {
+        let mut out = Vec::new();
+        let mut offset = 0usize;
+        loop {
+            let off = offset.to_string();
+            let json = get(cfg, "getAlbumList2", &[("type", "alphabeticalByArtist"), ("size", "500"), ("offset", &off)])?;
+            let page = parse_albums(cfg, &json["albumList2"]["album"]);
+            let n = page.len();
+            out.extend(page);
+            offset += n;
+            if n < 500 || offset > 100_000 {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    pub(super) fn parse_albums(cfg: &ServerConfig, list: &Value) -> Vec<ServerAlbum> {
+        let Some(items) = list.as_array() else { return Vec::new() };
+        items
+            .iter()
+            .filter_map(|it| {
+                let id = id_of(&it["id"])?;
+                let image_url = id_of(&it["coverArt"]).map(|art| {
+                    format!("{}/rest/getCoverArt.view?id={}&size=400&{}", cfg.url, percent_encode(&art), auth_query(cfg))
+                });
+                Some(ServerAlbum {
+                    title: it["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Unknown Album").to_string(),
+                    artist: it["artist"].as_str().filter(|n| !n.is_empty()).unwrap_or("Unknown Artist").to_string(),
+                    year: u32_of(&it["year"]),
+                    image_url,
+                    id,
+                })
+            })
+            .collect()
+    }
+
+    pub fn album_tracks(cfg: &ServerConfig, album: &ServerAlbum) -> Result<Vec<Track>> {
+        let json = get(cfg, "getAlbum", &[("id", &album.id)])?;
+        Ok(parse_songs(cfg, Some(album), &json["album"]["song"]))
+    }
+
+    pub fn search(cfg: &ServerConfig, query: &str) -> Result<Vec<Track>> {
+        let json = get(cfg, "search3", &[("query", query), ("songCount", "50"), ("albumCount", "0"), ("artistCount", "0")])?;
+        Ok(parse_songs(cfg, None, &json["searchResult3"]["song"]))
+    }
+
+    /// Ids are strings on most servers, numbers on some.
+    fn id_of(v: &Value) -> Option<String> {
+        match v {
+            Value::String(s) if !s.is_empty() => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+
+    pub(super) fn parse_songs(cfg: &ServerConfig, album: Option<&ServerAlbum>, list: &Value) -> Vec<Track> {
+        let Some(items) = list.as_array() else { return Vec::new() };
+        items
+            .iter()
+            .filter(|it| it["isVideo"].as_bool() != Some(true))
+            .filter_map(|it| {
+                let id = id_of(&it["id"])?;
+                let artist = it["artist"].as_str().filter(|a| !a.is_empty()).map(str::to_string);
+                let (album_title, album_artist, album_year) = match album {
+                    Some(a) => (a.title.clone(), a.artist.clone(), a.year),
+                    None => (
+                        str_of(&it["album"]),
+                        artist.clone().unwrap_or_else(|| "Unknown Artist".into()),
+                        0,
+                    ),
+                };
+                Some(Track {
+                    path: track_key(cfg, &id),
+                    title: str_of(&it["title"]),
+                    artist: artist.unwrap_or_else(|| album_artist.clone()),
+                    album: album_title,
+                    album_artist,
+                    track_no: u32_of(&it["track"]),
+                    disc_no: u32_of(&it["discNumber"]),
+                    year: u32_of(&it["year"]).max(album_year),
+                    duration_ms: it["duration"].as_u64().unwrap_or(0) * 1000,
+                    stream_url: Some(stream_url(cfg, &format!("/rest/stream.view?id={}&format=raw", percent_encode(&id)))),
+                    stream_ext: it["suffix"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
+                    ..Default::default()
+                })
+            })
+            .collect()
+    }
+}
+
+/// MD5 as lowercase hex (for Subsonic's token authentication).
+pub(crate) fn md5_hex(data: &[u8]) -> String {
+    const S: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14,
+        20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6,
+        10, 15, 21,
+    ];
+    let k: Vec<u32> = (0..64).map(|i| ((i as f64 + 1.0).sin().abs() * 4294967296.0) as u32).collect();
+    let mut msg = data.to_vec();
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_le_bytes());
+    let (mut a0, mut b0, mut c0, mut d0) = (0x67452301u32, 0xefcdab89u32, 0x98badcfeu32, 0x10325476u32);
+    for chunk in msg.chunks(64) {
+        let m: Vec<u32> = chunk.chunks(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect();
+        let (mut a, mut b, mut c, mut d) = (a0, b0, c0, d0);
+        for i in 0..64 {
+            let (f, g) = match i / 16 {
+                0 => ((b & c) | (!b & d), i),
+                1 => ((d & b) | (!d & c), (5 * i + 1) % 16),
+                2 => (b ^ c ^ d, (3 * i + 5) % 16),
+                _ => (c ^ (b | !d), (7 * i) % 16),
+            };
+            let f = f.wrapping_add(a).wrapping_add(k[i]).wrapping_add(m[g]);
+            a = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(f.rotate_left(S[i]));
+        }
+        a0 = a0.wrapping_add(a);
+        b0 = b0.wrapping_add(b);
+        c0 = c0.wrapping_add(c);
+        d0 = d0.wrapping_add(d);
+    }
+    [a0, b0, c0, d0].iter().flat_map(|w| w.to_le_bytes()).map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -725,7 +1026,7 @@ mod tests {
                           "RunTimeTicks":1234560000,"Container":"flac"}]}"#,
         )
         .unwrap();
-        let t = jellyfin::parse_tracks(&c, &a[0], &tracks);
+        let t = jellyfin::parse_tracks(&c, Some(&a[0]), &tracks);
         assert_eq!(t[0].duration_ms, 123_456);
         assert_eq!(t[0].path, std::path::PathBuf::from("jellyfin://nas:8096/T1"));
         assert_eq!(t[0].stream_ext.as_deref(), Some("flac"));
@@ -758,12 +1059,93 @@ mod tests {
                 "Media":[{"container":"flac","Part":[{"key":"/library/parts/5/123/file.flac"}]}]}]}}"#,
         )
         .unwrap();
-        let t = plex::parse_tracks(&c, &a[0], &tracks);
+        let t = plex::parse_tracks(&c, Some(&a[0]), &tracks["MediaContainer"]["Metadata"]);
         assert_eq!(t[0].track_no, 8);
         assert_eq!(t[0].stream_url.as_deref(), Some("http://nas:8096/library/parts/5/123/file.flac?X-Plex-Token=TOK"));
         assert_eq!(t[0].source(), crate::audio::Source::Remote {
             url: "http://nas:8096/library/parts/5/123/file.flac?X-Plex-Token=TOK".into(),
             ext: Some("flac".into())
         });
+    }
+
+    #[test]
+    fn md5_matches_reference() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(md5_hex(b"The quick brown fox jumps over the lazy dog"), "9e107d9d372bb6826bd81d3542a419d6");
+        // Example from the Subsonic API documentation: password "sesame", salt "c19b2d".
+        assert_eq!(md5_hex(b"sesamec19b2d"), "26719a1196d2a940705a59634eb18eab");
+        let long = vec![b'a'; 1000];
+        assert_eq!(md5_hex(&long), "cabe45dcc9ae5b66ba86600cca6b8ba8");
+    }
+
+    #[test]
+    fn stream_refs_drop_credentials() {
+        for kind in [ServerKind::Jellyfin, ServerKind::Plex, ServerKind::Subsonic] {
+            let mut c = cfg(kind);
+            if kind == ServerKind::Subsonic {
+                c.token = "abc:salt1".into();
+            }
+            for r in ["/Audio/T1/stream?static=true", "/library/parts/5/123/file.flac", "/rest/stream.view?id=s%201&format=raw"] {
+                let url = stream_url(&c, r);
+                assert!(!stream_ref(&c, &url).unwrap().contains("TOK"));
+                assert_eq!(stream_ref(&c, &url).as_deref(), Some(r), "{kind:?} {r}");
+            }
+        }
+        let c = cfg(ServerKind::Subsonic);
+        assert!(owns_track(&c, std::path::Path::new("subsonic://nas:8096/42")));
+        assert!(!owns_track(&c, std::path::Path::new("plex://nas:8096/42")));
+    }
+
+    #[test]
+    fn parses_subsonic() {
+        let mut c = cfg(ServerKind::Subsonic);
+        c.token = "26719a1196d2a940705a59634eb18eab:c19b2d".into();
+        let albums: Value = serde_json::from_str(
+            r#"[{"id":"al-1","name":"Blue Train","artist":"John Coltrane","year":1957,"coverArt":"al-1"},{"id":7,"name":""}]"#,
+        )
+        .unwrap();
+        let a = subsonic::parse_albums(&c, &albums);
+        assert_eq!(a.len(), 2);
+        assert_eq!(a[1].id, "7");
+        assert_eq!(a[1].title, "Unknown Album");
+        let img = a[0].image_url.as_deref().unwrap();
+        assert!(img.starts_with("http://nas:8096/rest/getCoverArt.view?id=al-1&size=400&u=me&t=26719a1196d2a940705a59634eb18eab&s=c19b2d"));
+        let songs: Value = serde_json::from_str(
+            r#"[{"id":"s1","title":"Blue Train","artist":"John Coltrane","album":"Blue Train","track":1,"discNumber":1,
+                 "year":1957,"duration":643,"suffix":"flac"},{"id":"v1","title":"Clip","isVideo":true}]"#,
+        )
+        .unwrap();
+        let t = subsonic::parse_songs(&c, Some(&a[0]), &songs);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].duration_ms, 643_000);
+        assert_eq!(t[0].path, std::path::PathBuf::from("subsonic://nas:8096/s1"));
+        assert_eq!(t[0].stream_ext.as_deref(), Some("flac"));
+        assert!(t[0].stream_url.as_deref().unwrap().starts_with("http://nas:8096/rest/stream.view?id=s1&format=raw&u=me&t="));
+        let found = subsonic::parse_songs(&c, None, &songs);
+        assert_eq!(found[0].album, "Blue Train");
+        assert_eq!(found[0].album_artist, "John Coltrane");
+    }
+
+    #[test]
+    fn parses_search_results() {
+        let c = cfg(ServerKind::Jellyfin);
+        let json: Value = serde_json::from_str(
+            r#"{"Items":[{"Id":"T9","Name":"Song","Artists":["A"],"Album":"Record","AlbumArtist":"Band","ProductionYear":1999}]}"#,
+        )
+        .unwrap();
+        let t = jellyfin::parse_tracks(&c, None, &json);
+        assert_eq!((t[0].album.as_str(), t[0].album_artist.as_str(), t[0].year), ("Record", "Band", 1999));
+
+        let c = cfg(ServerKind::Plex);
+        let json: Value = serde_json::from_str(
+            r#"{"MediaContainer":{"Hub":[{"type":"album","Metadata":[{"ratingKey":"1"}]},
+                {"type":"track","Metadata":[{"ratingKey":"12","title":"Airbag","grandparentTitle":"Radiohead",
+                 "parentTitle":"OK Computer","parentYear":1997,"index":1,"duration":284000,
+                 "Media":[{"container":"mp3","Part":[{"key":"/library/parts/9/1/file.mp3"}]}]}]}]}}"#,
+        )
+        .unwrap();
+        let t = plex::parse_search(&c, &json);
+        assert_eq!(t.len(), 1);
+        assert_eq!((t[0].album.as_str(), t[0].artist.as_str(), t[0].year), ("OK Computer", "Radiohead", 1997));
     }
 }

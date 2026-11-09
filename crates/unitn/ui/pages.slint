@@ -875,7 +875,7 @@ export component NowPlayingPage inherits Rectangle {
     }
 }
 
-/// Albums on a Jellyfin or Plex server.
+/// Albums on a Jellyfin, Plex or Subsonic server.
 export component ServerPage inherits Rectangle {
     in property <[AlbumItem]> albums;
     in property <string> status;
@@ -1155,7 +1155,7 @@ export component SettingsPage inherits Rectangle {
             SettingsCard {
                 title: "Music servers";
                 Text {
-                    text: "Play the music on your own Jellyfin or Plex server.";
+                    text: "Play the music on your own Jellyfin, Plex, Navidrome or other Subsonic server.";
                     color: Theme.fg-muted;
                     font-size: 13px;
                     wrap: word-wrap;

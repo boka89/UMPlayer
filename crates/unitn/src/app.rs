@@ -53,6 +53,8 @@ enum Bg {
     FixSaved(Result<(String, String, bool), String>),
     /// Signing in to a new server finished.
     ServerConnected(Result<ServerConfig, String>),
+    /// Songs found on the music servers for a library search.
+    ServerSearch { request: u64, tracks: Vec<Track> },
     /// "Sign in with Plex": waiting for the user to approve in the browser.
     PlexWaiting { login: u64, code: String, opened: bool },
     /// The album list of a server arrived.
@@ -257,6 +259,8 @@ pub struct App {
     server_request: Arc<AtomicU64>,
     /// Current "Sign in with Plex" attempt; bumping it cancels the old one.
     plex_login: Arc<AtomicU64>,
+    /// Current library search, so late server results can be ignored.
+    search_request: Arc<AtomicU64>,
     fix: FixState,
     fix_request: Arc<AtomicU64>,
     artists: Vec<Artist>,
@@ -357,6 +361,7 @@ impl App {
             server: ServerView::default(),
             server_request: Arc::new(AtomicU64::new(0)),
             plex_login: Arc::new(AtomicU64::new(0)),
+            search_request: Arc::new(AtomicU64::new(0)),
             fix: FixState::default(),
             fix_request: Arc::new(AtomicU64::new(0)),
             artists: Vec::new(),
@@ -770,6 +775,7 @@ impl App {
             Bg::FixResults { request, result } => self.on_fix_results(request, result),
             Bg::ServerConnected(result) => self.on_server_connected(result),
             Bg::PlexWaiting { login, code, opened } => self.on_plex_waiting(login, code, opened),
+            Bg::ServerSearch { request, tracks } => self.on_server_search(request, tracks),
             Bg::ServerAlbums { request, key, result } => {
                 if request != self.server_request.load(Ordering::Relaxed) {
                     return;
@@ -1204,12 +1210,48 @@ impl App {
     pub fn search_library(&mut self, query: &str) {
         self.query = query.trim().to_string();
         self.songs = self.library.tracks(Some(&self.query)).unwrap_or_default();
+        self.show_songs();
+        if let Some(ui) = self.ui() {
+            ui.set_library_query(self.query.as_str().into());
+        }
+        // Also search the connected music servers; their songs are added
+        // below the local ones when they arrive.
+        let request = self.search_request.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.query.chars().count() < 2 || self.settings.servers.is_empty() {
+            return;
+        }
+        let (servers, query, tx, current) =
+            (self.settings.servers.clone(), self.query.clone(), self.bg_tx.clone(), self.search_request.clone());
+        thread::spawn(move || {
+            let mut tracks = Vec::new();
+            for cfg in &servers {
+                if current.load(Ordering::SeqCst) != request {
+                    return;
+                }
+                match servers::search_tracks(cfg, &query) {
+                    Ok(found) => tracks.extend(found),
+                    Err(e) => log(format!("servers: searching {} failed: {e:#}", cfg.name)),
+                }
+            }
+            let _ = tx.send(Bg::ServerSearch { request, tracks });
+        });
+    }
+
+    fn show_songs(&mut self) {
         let items: Vec<TrackItem> =
             self.songs.iter().enumerate().map(|(i, t)| Self::track_item(t, (i + 1).to_string())).collect();
         if let Some(ui) = self.ui() {
-            ui.set_library_query(self.query.as_str().into());
             ui.set_songs(model(items));
         }
+    }
+
+    fn on_server_search(&mut self, request: u64, tracks: Vec<Track>) {
+        if request != self.search_request.load(Ordering::SeqCst) || tracks.is_empty() {
+            return;
+        }
+        self.songs = self.library.tracks(Some(&self.query)).unwrap_or_default();
+        self.songs.extend(tracks);
+        self.show_songs();
     }
 
     pub fn open_album(&mut self, index: usize) {
@@ -1302,10 +1344,41 @@ impl App {
         }
     }
 
+    /// Saves what's needed to show and play server songs from a playlist
+    /// later (no credentials: those come from the server settings).
+    fn remember_server_songs(&self, tracks: &[Track]) {
+        let remote: Vec<(Track, String)> = tracks
+            .iter()
+            .filter(|t| t.is_remote())
+            .filter_map(|t| {
+                let cfg = self.settings.servers.iter().find(|c| servers::owns_track(c, &t.path))?;
+                let stream_ref = servers::stream_ref(cfg, t.stream_url.as_deref()?)?;
+                Some((t.clone(), stream_ref))
+            })
+            .collect();
+        if !remote.is_empty() {
+            if let Err(e) = self.library.remember_remote_tracks(&remote) {
+                log(format!("playlists: could not save server songs: {e:#}"));
+            }
+        }
+    }
+
+    /// Gives playlist songs from music servers their stream address.
+    fn resolve_server_songs(&self, tracks: &mut [Track]) {
+        for t in tracks.iter_mut().filter(|t| t.stream_url.is_none()) {
+            let Some(cfg) = self.settings.servers.iter().find(|c| servers::owns_track(c, &t.path)) else { continue };
+            if let Ok(Some(stream_ref)) = self.library.remote_stream_ref(&t.path) {
+                t.stream_url = Some(servers::stream_url(cfg, &stream_ref));
+            }
+        }
+    }
+
     pub fn open_playlist(&mut self, index: usize) {
         let Some(pl) = self.playlists.get(index).cloned() else { return };
         self.current_playlist = Some(index);
-        self.playlist_tracks = self.library.playlist_tracks(pl.id).unwrap_or_default();
+        let mut tracks = self.library.playlist_tracks(pl.id).unwrap_or_default();
+        self.resolve_server_songs(&mut tracks);
+        self.playlist_tracks = tracks;
         let total: u64 = self.playlist_tracks.iter().map(|t| t.duration_ms).sum();
         let info = format!("{} • {}", plural(self.playlist_tracks.len(), "song", "songs"), long_duration(total));
         let items: Vec<TrackItem> = self
@@ -1407,14 +1480,16 @@ impl App {
     }
 
     pub fn save_queue_as_playlist(&mut self) {
-        let paths: Vec<PathBuf> = self
+        let tracks: Vec<Track> = self
             .queue
             .iter()
             .filter_map(|i| match i {
-                Item::Track(t) => Some(t.path.clone()),
+                Item::Track(t) => Some(t.clone()),
                 Item::Station(_) => None,
             })
             .collect();
+        self.remember_server_songs(&tracks);
+        let paths: Vec<PathBuf> = tracks.into_iter().map(|t| t.path).collect();
         if paths.is_empty() {
             self.show_toast("The queue has no songs to save");
             return;
@@ -1428,7 +1503,7 @@ impl App {
     }
 
     // ------------------------------------------------------------------
-    // Music servers (Jellyfin, Plex)
+    // Music servers (Jellyfin, Plex, OpenSubsonic)
     // ------------------------------------------------------------------
 
     fn refresh_servers(&mut self) {
@@ -1458,7 +1533,7 @@ impl App {
             }
             return;
         }
-        let kind = if kind == 1 { ServerKind::Plex } else { ServerKind::Jellyfin };
+        let kind = if kind == 2 { ServerKind::Subsonic } else { ServerKind::Jellyfin };
         if let Some(ui) = self.ui() {
             ui.set_server_connecting(true);
             ui.set_server_dialog_status(format!("Connecting to {}…", kind.label()).into());
@@ -1996,9 +2071,8 @@ impl App {
         if tracks.is_empty() {
             return;
         }
-        if matches!(action, 2 | 3) && tracks.iter().any(|t| t.is_remote()) {
-            self.show_toast("Songs from music servers can't be added to playlists yet");
-            return;
+        if matches!(action, 2 | 3) {
+            self.remember_server_songs(&tracks);
         }
         let what = if tracks.len() == 1 { format!("\"{}\"", tracks[0].title) } else { plural(tracks.len(), "song", "songs") };
         let paths: Vec<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();

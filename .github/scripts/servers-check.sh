@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts real Jellyfin and Plex servers in Docker with a few generated albums
+# Starts real Jellyfin, Plex and Navidrome servers in Docker with a few generated albums
 # and checks that Unitn can sign in, browse and stream from them.
 set -u
 MUSIC=/tmp/srvmusic
@@ -95,5 +95,24 @@ echo "albums indexed: ${n:-?}"
 echo "::endgroup::"
 # An unclaimed server trusts local requests, so any token works here.
 cargo run --release -q -p unitn-core --example server_check -- plex localhost "" local-test-token || status=1
+
+# ---------------- Navidrome (OpenSubsonic) ----------------
+echo "::group::Navidrome setup"
+docker run -d --name navidrome --network host -e ND_MUSICFOLDER=/music -e ND_LOGLEVEL=info \
+  -v "$MUSIC:/music:ro" deluan/navidrome:latest >/dev/null
+ND=http://localhost:4533
+wait_for "$ND/ping" 120 || echo "Navidrome did not start"
+curl -s -o /dev/null -w "create admin: %{http_code}\n" -X POST "$ND/auth/createAdmin" \
+  -H 'Content-Type: application/json' -d '{"username":"unitn","password":"secret123"}'
+SQ="u=unitn&p=secret123&v=1.16.1&c=ci&f=json"
+curl -s "$ND/rest/startScan.view?$SQ" | jq -c '."subsonic-response".status' || true
+for _ in $(seq 1 60); do
+  n=$(curl -s "$ND/rest/getAlbumList2.view?$SQ&type=alphabeticalByName&size=50" | jq -r '[."subsonic-response".albumList2.album[]?] | length')
+  [ "${n:-0}" -ge 2 ] 2>/dev/null && break
+  sleep 2
+done
+echo "albums indexed: ${n:-?}"
+echo "::endgroup::"
+cargo run --release -q -p unitn-core --example server_check -- subsonic localhost unitn secret123 || status=1
 
 exit $status
