@@ -102,7 +102,15 @@ jobs:
       - name: Build installers
         shell: bash
         working-directory: crates/unitn
-        run: cargo packager --release --formats ${{ matrix.formats }} $TARGET_FLAG
+        # The packager downloads helper tools from GitHub releases, which sometimes
+        # answer 504: try a few times before giving up.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            cargo packager --release --formats ${{ matrix.formats }} $TARGET_FLAG && exit 0
+            echo "::warning::packaging attempt $attempt failed, retrying in 45 s"
+            sleep 45
+          done
+          exit 1
 
       - name: Portable archives
         shell: bash
