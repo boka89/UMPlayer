@@ -504,7 +504,8 @@ impl Library {
     /// The saved stream reference of a remembered server song.
     pub fn remote_stream_ref(&self, path: &Path) -> Result<Option<String>> {
         let mut st = self.conn.prepare_cached("SELECT stream_ref FROM remote_tracks WHERE path = ?1")?;
-        Ok(st.query_map(params![path_str(path)], |r| r.get::<_, String>(0))?.next().transpose()?)
+        let found = st.query_map(params![path_str(path)], |r| r.get::<_, String>(0))?.next().transpose()?;
+        Ok(found)
     }
 
     pub fn add_to_playlist(&self, id: i64, paths: &[PathBuf]) -> Result<()> {
