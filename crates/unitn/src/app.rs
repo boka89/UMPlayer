@@ -524,6 +524,15 @@ impl App {
         self.refresh_play_state();
     }
 
+    /// Remembers the window size for the next start (called on exit).
+    pub fn remember_window(&mut self, width: f32, height: f32, maximized: bool) {
+        self.settings.window_maximized = maximized;
+        if !maximized {
+            self.settings.window_width = Some(width);
+            self.settings.window_height = Some(height);
+        }
+    }
+
     pub fn save_settings(&self) {
         self.settings.save(&self.paths.settings);
     }

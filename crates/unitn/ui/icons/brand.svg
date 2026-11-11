@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824" width="824" height="824">
+  <!-- Unitn app icon: the tuning fork "U". Master source for all icon sizes. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1E1B4B"/>
+  <g fill="none" stroke="#F5A524" stroke-linecap="round">
+    <path d="M357 255 V486 A155 155 0 0 0 667 486 V255" stroke-width="82"/>
+    <path d="M512 641 V800" stroke-width="82"/>
+    <path d="M760 296 A72 72 0 0 1 760 420" stroke-width="16" stroke-opacity="0.6"/>
+    <path d="M801 255 A124 124 0 0 1 801 461" stroke-width="16" stroke-opacity="0.35"/>
+  </g>
+</svg>

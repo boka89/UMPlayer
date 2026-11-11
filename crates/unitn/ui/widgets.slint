@@ -1,3 +1,8 @@
+// Inter, cut down to the letters of the "Unitn Music" lockup (OFL, see
+// fonts/OFL.txt). Imported here, not in app.slint, so it doesn't become the
+// app's default font.
+import "fonts/Inter-Black-brand.ttf";
+import "fonts/Inter-Regular-brand.ttf";
 // Small reusable controls styled with the Theme.
 
 import { Theme } from "theme.slint";
@@ -1163,6 +1168,36 @@ export component VizControls inherits Rectangle {
             icon-size: 15px;
             tint: Theme.fg-muted;
             clicked => { root.toggle-fullscreen(); }
+        }
+    }
+}
+
+/// The "Unitn Music" lockup, as in the startup animation.
+export component BrandMark inherits HorizontalLayout {
+    spacing: 10px;
+    Image {
+        source: @image-url("icons/brand.svg");
+        width: 34px;
+        height: 34px;
+    }
+    HorizontalLayout {
+        spacing: 5px;
+        Text {
+            text: "Unitn";
+            color: Theme.fg;
+            font-family: "Inter Black";
+            font-size: 21px;
+            letter-spacing: -0.7px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "Music";
+            color: #F5A524;
+            font-family: "Inter";
+            font-weight: 400;
+            font-size: 21px;
+            letter-spacing: -0.7px;
+            vertical-alignment: center;
         }
     }
 }

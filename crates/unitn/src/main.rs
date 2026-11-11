@@ -82,6 +82,15 @@ fn run() -> Result<()> {
     }
     let (player, player_events) = Player::new();
 
+    // The window opens at the size it had when the app was closed.
+    if let (Some(w), Some(h)) = (settings.window_width, settings.window_height) {
+        let (w, h) = (w.max(MIN_WINDOW.0 as f32), h.max(MIN_WINDOW.1 as f32));
+        if w.is_finite() && h.is_finite() && w < 10_000.0 && h < 10_000.0 {
+            ui.window().set_size(slint::LogicalSize::new(w, h));
+        }
+    }
+    let start_maximized = settings.window_maximized;
+
     // Startup animation (test hook: UNITN_NO_INTRO=1 skips it).
     let intro_enabled = std::env::var("UNITN_NO_INTRO").map_or(true, |v| v.is_empty());
     if intro_enabled {
@@ -92,6 +101,9 @@ fn run() -> Result<()> {
 
     // The window must exist before media controls can attach to it (Windows).
     ui.show()?;
+    if start_maximized {
+        ui.window().set_maximized(true);
+    }
     unitn_core::log::log("startup: window shown");
     let (media_tx, media_rx) = mpsc::channel();
     // Media controls are attached once the event loop runs (on Windows the
@@ -135,15 +147,26 @@ fn run() -> Result<()> {
         let dropped: Rc<RefCell<Vec<std::path::PathBuf>>> = Rc::default();
         let timer = Rc::new(Timer::default());
         let resize_weak = ui.as_weak();
+        let resize_app = app.clone();
         ui.window().on_winit_window_event(move |_, event| {
             match event {
                 WindowEvent::Resized(_) => {
                     // Re-check after the event: the window must not get
                     // smaller than the size the player still works at.
                     let weak = resize_weak.clone();
+                    let app = resize_app.clone();
                     Timer::single_shot(Duration::ZERO, move || {
                         if let Some(ui) = weak.upgrade() {
                             keep_min_size(&ui);
+                            // Remember the size for the next start (not the
+                            // full-screen visualizer's).
+                            let window = ui.window();
+                            if !window.is_fullscreen() && !window.is_minimized() {
+                                let size = window.size().to_logical(window.scale_factor());
+                                if let Ok(mut app) = app.try_borrow_mut() {
+                                    app.remember_window(size.width, size.height, window.is_maximized());
+                                }
+                            }
                         }
                     });
                 }

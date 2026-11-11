@@ -5,7 +5,7 @@ import { Theme } from "theme.slint";
 import {
     AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, MenuRow, FixCandidate, ServerItem, Chip,
     PodcastItem, EpisodeItem,
-    IconButton, PillButton, NavItem, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls, IdleArea,
+    IconButton, PillButton, NavItem, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls, BrandMark, IdleArea,
 } from "widgets.slint";
 import { AlbumsPage, AlbumDetailPage, ArtistsPage, SongsPage, RadioPage, QueuePage, NowPlayingPage, SettingsPage, PlaylistPage, ServerPage, PodcastsPage } from "pages.slint";
 
@@ -363,28 +363,7 @@ export component AppWindow inherits Window {
                             padding-left: 6px;
                             padding-bottom: 18px;
                             spacing: 10px;
-                            Rectangle {
-                                width: 32px;
-                                height: 32px;
-                                border-radius: 8px;
-                                background: #1E1B4B;
-                                // The app icon's tuning-fork "U".
-                                Image {
-                                    source: @image-url("icons/logo.svg");
-                                    width: 22px;
-                                    height: 22px;
-                                    x: (parent.width - self.width) / 2;
-                                    y: (parent.height - self.height) / 2;
-                                    colorize: #F5A524;
-                                }
-                            }
-                            Text {
-                                text: "Unitn";
-                                color: Theme.fg;
-                                font-size: 18px;
-                                font-weight: 800;
-                                vertical-alignment: center;
-                            }
+                            BrandMark {}
                         }
                         Text {
                             text: "LIBRARY";
