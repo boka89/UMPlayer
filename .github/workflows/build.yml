@@ -37,7 +37,7 @@ jobs:
         if: runner.os == 'Linux'
         # Ubuntu's mirrors sometimes stall or fail to resolve on the runners:
         # short timeouts, retries, and a step timeout instead of hanging.
-        timeout-minutes: 12
+        timeout-minutes: 15
         run: |
           APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
           for attempt in 1 2 3; do
@@ -46,7 +46,9 @@ jobs:
                 libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev; then
               exit 0
             fi
-            echo "apt failed (attempt $attempt), retrying in 20 s"; sleep 20
+            echo "apt failed (attempt $attempt), retrying in 20 s with the main Ubuntu mirror"; sleep 20
+            # Bypass the runner's Azure mirror list.
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#; s#https\?://security.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#; s#https\?://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           done
           exit 1
 
