@@ -46,6 +46,43 @@ component ThemeSwitch inherits Rectangle {
     }
 }
 
+/// The startup animation (see src/intro.rs) in its own small window, so it
+/// always has the same size, whatever size the main window was left at.
+export component SplashWindow inherits Window {
+    in property <image> frame;
+    in property <bool> fading: false;
+    callback skip();
+    callback finished();
+    title: "Unitn";
+    no-frame: true;
+    width: 880px;
+    height: 495px;
+    min-width: 880px;
+    max-width: 880px;
+    min-height: 495px;
+    max-height: 495px;
+    background: #0C091E;
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.frame;
+        image-fit: cover;
+        opacity: root.fading ? 0 : 1;
+        animate opacity { duration: 350ms; easing: ease-in; }
+    }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            root.skip();
+            accept
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.skip(); }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Unitn player";
     icon: @image-url("../icons/256x256.png");
@@ -235,11 +272,6 @@ export component AppWindow inherits Window {
     callback lyrics-online-changed(bool);
     in property <bool> startup-sound: true;
     callback startup-sound-changed(bool);
-    // Startup animation (see src/intro.rs).
-    in property <bool> intro-visible: false;
-    in property <bool> intro-fading: false;
-    in property <image> intro-frame;
-    callback intro-skip();
     callback radio-genre(string);
     callback add-custom-stream(string, string);
     callback play-station(int);
@@ -315,7 +347,6 @@ export component AppWindow inherits Window {
     keys := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
-            if (root.intro-visible) { root.intro-skip(); return accept; }
             if (event.modifiers.control || event.modifiers.meta) {
                 if (event.text == Key.RightArrow) { root.next(); return accept; }
                 if (event.text == Key.LeftArrow) { root.previous(); return accept; }
@@ -1532,27 +1563,6 @@ export component AppWindow inherits Window {
             vertical-alignment: center;
             horizontal-alignment: center;
             overflow: elide;
-        }
-    }
-
-    // Startup animation: covers the whole window, then fades into the app.
-    if root.intro-visible: Rectangle {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        background: #0C091E;
-        opacity: root.intro-fading ? 0 : 1;
-        animate opacity { duration: 450ms; easing: ease-in-out; }
-        Image {
-            width: parent.width;
-            height: parent.height;
-            source: root.intro-frame;
-            image-fit: cover;
-        }
-        TouchArea {
-            mouse-cursor: pointer;
-            clicked => { root.intro-skip(); }
         }
     }
 }

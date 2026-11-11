@@ -91,20 +91,33 @@ fn run() -> Result<()> {
     }
     let start_maximized = settings.window_maximized;
 
-    // Startup animation (test hook: UNITN_NO_INTRO=1 skips it).
+    // Startup animation in its own splash window (test hook: UNITN_NO_INTRO=1
+    // skips it); the main window appears when it is over.
     let intro_enabled = std::env::var("UNITN_NO_INTRO").map_or(true, |v| v.is_empty());
-    if intro_enabled {
-        let sound = settings.startup_sound.then_some(settings.volume);
-        let intro = intro::start(&ui, sound);
-        ui.on_intro_skip(move || intro.skip());
-    }
-
-    // The window must exist before media controls can attach to it (Windows).
-    ui.show()?;
-    if start_maximized {
-        ui.window().set_maximized(true);
-    }
-    unitn_core::log::log("startup: window shown");
+    let intro_sound = settings.startup_sound.then_some(settings.volume);
+    let (main_shown_tx, main_shown_rx) = mpsc::channel::<()>();
+    let show_main = {
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            if let Err(e) = ui.show() {
+                unitn_core::log::log(format!("startup: cannot show the window: {e}"));
+            }
+            if start_maximized {
+                ui.window().set_maximized(true);
+            }
+            unitn_core::log::log("startup: window shown");
+            let _ = main_shown_tx.send(());
+        }
+    };
+    let _splash = if intro_enabled {
+        let splash = SplashWindow::new()?;
+        let _intro = intro::start(&splash, intro_sound, show_main);
+        Some(splash)
+    } else {
+        show_main();
+        None
+    };
     let (media_tx, media_rx) = mpsc::channel();
     // Media controls are attached once the event loop runs (on Windows the
     // native window, which they need, only exists from then on).
@@ -199,11 +212,18 @@ fn run() -> Result<()> {
         });
     }
 
+    // Media controls attach to the native window, so only once it is shown
+    // (after the startup animation).
     let media_timer = Timer::default();
     {
         let app = app.clone();
         let weak = ui.as_weak();
-        media_timer.start(TimerMode::SingleShot, Duration::from_millis(400), move || {
+        let mut attached = false;
+        media_timer.start(TimerMode::Repeated, Duration::from_millis(400), move || {
+            if attached || main_shown_rx.try_recv().is_err() {
+                return;
+            }
+            attached = true;
             let Some(ui) = weak.upgrade() else { return };
             let media = media::Media::new(window_handle(&ui), media_tx.clone());
             if let Ok(mut app) = app.try_borrow_mut() {

@@ -1,7 +1,8 @@
 //! The startup animation: the Unitn logo sting (rendered with HyperFrames,
-//! see tools/make_intro.py) plays over the window, holds the logo for a
-//! moment and fades into the app. A click or a key skips it. Its sound
-//! plays on a separate, short-lived player (setting "Startup sound").
+//! see tools/make_intro.py) plays in its own fixed-size splash window, holds
+//! the logo for a moment, then the main window takes over. A click or a key
+//! skips it. Its sound plays on a separate, short-lived player (setting
+//! "Startup sound").
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,15 +12,15 @@ use slint::{ComponentHandle, Image, Rgb8Pixel, SharedPixelBuffer};
 use unitn_core::audio::{Player, Source};
 use unitn_core::log::log;
 
-use crate::AppWindow;
+use crate::SplashWindow;
 
 static FRAMES: &[u8] = include_bytes!("../assets/intro/frames.bin");
 static SOUND: &[u8] = include_bytes!("../assets/intro/sound.m4a");
 const FPS: f64 = 30.0;
 /// How long the finished logo stays before the fade.
 const HOLD: Duration = Duration::from_millis(900);
-/// Must match `animate opacity` of the intro overlay in app.slint.
-const FADE: Duration = Duration::from_millis(450);
+/// Must match `animate opacity` in SplashWindow (app.slint).
+const FADE: Duration = Duration::from_millis(350);
 
 /// Splits frames.bin into the JPEG frames.
 fn frames() -> Vec<&'static [u8]> {
@@ -68,16 +69,43 @@ impl Intro {
     }
 }
 
-/// Shows the overlay and plays the animation; `sound` is the volume for the
-/// startup sound, or `None` for silence.
-pub fn start(ui: &AppWindow, sound: Option<f32>) -> Intro {
+/// Shows the splash window and plays the animation; `sound` is the volume
+/// for the startup sound, or `None` for silence. `done` runs on the UI thread
+/// when the animation is over (or skipped), after which the splash closes.
+pub fn start(splash: &SplashWindow, sound: Option<f32>, done: impl FnOnce() + 'static) -> Intro {
     let intro = Intro { skip: Arc::new(AtomicBool::new(false)) };
     let frames = frames();
-    if frames.is_empty() {
+    let done = std::rc::Rc::new(std::cell::RefCell::new(Some(Box::new(done) as Box<dyn FnOnce()>)));
+    let finish = {
+        let done = done.clone();
+        let weak = splash.as_weak();
+        move || {
+            if let Some(done) = done.borrow_mut().take() {
+                done();
+            }
+            if let Some(splash) = weak.upgrade() {
+                let _ = splash.hide();
+            }
+        }
+    };
+    if frames.is_empty() || splash.show().is_err() {
+        finish();
         return intro;
     }
-    ui.set_intro_visible(true);
-    let weak = ui.as_weak();
+    center(splash);
+    {
+        let skip = intro.skip.clone();
+        splash.on_skip(move || skip.store(true, Ordering::Relaxed));
+    }
+    // The thread can't hold `finish` (not Send): it asks the UI thread to run it.
+    let finish = std::rc::Rc::new(std::cell::RefCell::new(Some(finish)));
+    let finish_slot = finish.clone();
+    let weak = splash.as_weak();
+    splash.on_finished(move || {
+        if let Some(f) = finish_slot.borrow_mut().take() {
+            f();
+        }
+    });
     let skip = intro.skip.clone();
     let spawned = std::thread::Builder::new().name("unitn-intro".into()).spawn(move || {
         let player = sound.and_then(start_sound);
@@ -98,7 +126,7 @@ pub fn start(ui: &AppWindow, sound: Option<f32>) -> Intro {
                 std::thread::sleep(wait);
             }
             shown += 1;
-            let _ = weak.upgrade_in_event_loop(move |ui| ui.set_intro_frame(Image::from_rgb8(buffer)));
+            let _ = weak.upgrade_in_event_loop(move |s| s.set_frame(Image::from_rgb8(buffer)));
         }
         let skipped = skip.load(Ordering::Relaxed);
         if !skipped {
@@ -108,12 +136,9 @@ pub fn start(ui: &AppWindow, sound: Option<f32>) -> Intro {
             }
         }
         log(format!("intro: {shown} of {count} frames shown{}", if skipped { ", skipped" } else { "" }));
-        let _ = weak.upgrade_in_event_loop(|ui| ui.set_intro_fading(true));
+        let _ = weak.upgrade_in_event_loop(|s| s.set_fading(true));
         std::thread::sleep(FADE);
-        let _ = weak.upgrade_in_event_loop(|ui| {
-            ui.set_intro_visible(false);
-            ui.set_intro_frame(Image::default());
-        });
+        let _ = weak.upgrade_in_event_loop(|s| s.invoke_finished());
         if let Some(player) = player {
             if skip.load(Ordering::Relaxed) {
                 player.stop();
@@ -126,7 +151,22 @@ pub fn start(ui: &AppWindow, sound: Option<f32>) -> Intro {
     });
     if let Err(e) = spawned {
         log(format!("intro: cannot start: {e}"));
-        ui.set_intro_visible(false);
+        if let Some(f) = finish.borrow_mut().take() {
+            f();
+        }
     }
     intro
+}
+
+/// Puts the splash in the middle of the screen it opened on.
+fn center(splash: &SplashWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    splash.window().with_winit_window(|w| {
+        let Some(monitor) = w.current_monitor().or_else(|| w.primary_monitor()) else { return };
+        let (area, size) = (monitor.size(), w.outer_size());
+        let pos = monitor.position();
+        let x = pos.x + (area.width as i32 - size.width as i32) / 2;
+        let y = pos.y + (area.height as i32 - size.height as i32) / 2;
+        w.set_outer_position(slint::winit_030::winit::dpi::PhysicalPosition::new(x, y));
+    });
 }

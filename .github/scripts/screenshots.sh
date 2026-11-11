@@ -82,20 +82,15 @@ run_theme() { # theme-number name
   fi
   local pid=$!
   if [ "$2" = dark ]; then
-    for _ in $(seq 50); do
-      WID=$(xdotool search --name Unitn | head -1 || true)
-      [ -n "$WID" ] && break
-      sleep 0.1
-    done
-    xdotool windowmove "$WID" 0 0 windowsize "$WID" 1280 820 || true
-    sleep 1.4; shot "$2-intro-1"
+    # The animation has its own fixed-size window, centred on the screen.
+    sleep 1.5; shot "$2-intro-1"
     sleep 1.6; shot "$2-intro-2"
     sleep 1.8; shot "$2-intro-3"
     sleep 4
   else
     sleep 8
   fi
-  WID=$(xdotool search --name Unitn | head -1)
+  WID=$(xdotool search --onlyvisible --name Unitn | head -1)
   xdotool windowmove "$WID" 0 0 windowsize "$WID" 1280 820
   sleep 2
   shot "$2-albums"
