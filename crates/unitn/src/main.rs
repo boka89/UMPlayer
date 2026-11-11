@@ -3,6 +3,7 @@
 
 mod app;
 mod glass;
+mod intro;
 mod media;
 mod settings;
 
@@ -80,6 +81,14 @@ fn run() -> Result<()> {
         ui.set_titlebar_inset(28.0);
     }
     let (player, player_events) = Player::new();
+
+    // Startup animation (test hook: UNITN_NO_INTRO=1 skips it).
+    let intro_enabled = std::env::var("UNITN_NO_INTRO").map_or(true, |v| v.is_empty());
+    if intro_enabled {
+        let sound = settings.startup_sound.then_some(settings.volume);
+        let intro = intro::start(&ui, sound);
+        ui.on_intro_skip(move || intro.skip());
+    }
 
     // The window must exist before media controls can attach to it (Windows).
     ui.show()?;

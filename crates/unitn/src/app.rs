@@ -482,6 +482,7 @@ impl App {
             ui.set_crossfade(self.settings.crossfade);
             ui.set_gapless_albums(self.settings.gapless_albums);
             ui.set_lyrics_online(self.settings.lyrics_online);
+            ui.set_startup_sound(self.settings.startup_sound);
             ui.set_lyrics_open(self.settings.lyrics_open);
             ui.set_glass_available(crate::glass::AVAILABLE);
             ui.set_glass(self.settings.glass && crate::glass::AVAILABLE);
@@ -2855,6 +2856,14 @@ impl App {
         self.update_next();
     }
 
+    pub fn set_startup_sound(&mut self, on: bool) {
+        self.settings.startup_sound = on;
+        self.save_settings();
+        if let Some(ui) = self.ui() {
+            ui.set_startup_sound(on);
+        }
+    }
+
     pub fn set_lyrics_online(&mut self, on: bool) {
         self.settings.lyrics_online = on;
         self.save_settings();
@@ -3367,6 +3376,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_crossfade_changed, |a, secs| a.set_crossfade(secs));
     on!(on_gapless_albums_changed, |a, on| a.set_gapless_albums(on));
     on!(on_lyrics_online_changed, |a, on| a.set_lyrics_online(on));
+    on!(on_startup_sound_changed, |a, on| a.set_startup_sound(on));
     on!(on_lyrics_open_changed, |a, open| a.set_lyrics_open(open));
     on!(on_podcast_subscribe, |a, i| a.podcast_subscribe(i.max(0) as usize));
     on!(on_podcast_open, |a, i| a.podcast_open(i.max(0) as usize));

@@ -7,6 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Tests skip the startup animation (the dark screenshot run shows it).
+  UNITN_NO_INTRO: "1"
 
 permissions:
   contents: write

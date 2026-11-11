@@ -1079,6 +1079,8 @@ export component SettingsPage inherits Rectangle {
     callback gapless-albums-changed(bool);
     in property <bool> lyrics-online;
     callback lyrics-online-changed(bool);
+    in property <bool> startup-sound;
+    callback startup-sound-changed(bool);
     callback theme-selected(int);
     callback density-changed(bool);
     callback opacity-changed(float);
@@ -1240,6 +1242,19 @@ export component SettingsPage inherits Rectangle {
                     }
                     Chip { text: "On"; selected: root.lyrics-online; clicked => { root.lyrics-online-changed(true); } }
                     Chip { text: "Off"; selected: !root.lyrics-online; clicked => { root.lyrics-online-changed(false); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        width: 180px;
+                        text: "Startup sound";
+                        color: Theme.fg-muted;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: "On"; selected: root.startup-sound; clicked => { root.startup-sound-changed(true); } }
+                    Chip { text: "Off"; selected: !root.startup-sound; clicked => { root.startup-sound-changed(false); } }
                     Rectangle { horizontal-stretch: 1; }
                 }
                 Text {

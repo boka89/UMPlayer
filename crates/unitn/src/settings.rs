@@ -71,11 +71,13 @@ pub struct Settings {
     pub lyrics_online: bool,
     /// The lyrics panel is shown on Now Playing.
     pub lyrics_open: bool,
+    /// Play the sound of the startup animation.
+    pub startup_sound: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: THEME_SYSTEM, volume: 0.8, shuffle: false, repeat: 0, opacity: 1.0, viz_style: 0, download_art: true, compact_lists: false, eq_enabled: false, eq_gains: [0.0; 10], eq_preset: 0, eq_preamp: 0.0, eq_open: false, glass: false, servers: Vec::new(), crossfade: 0, gapless_albums: false, lyrics_online: true, lyrics_open: false }
+        Self { theme: THEME_SYSTEM, volume: 0.8, shuffle: false, repeat: 0, opacity: 1.0, viz_style: 0, download_art: true, compact_lists: false, eq_enabled: false, eq_gains: [0.0; 10], eq_preset: 0, eq_preamp: 0.0, eq_open: false, glass: false, servers: Vec::new(), crossfade: 0, gapless_albums: false, lyrics_online: true, lyrics_open: false, startup_sound: true }
     }
 }
 

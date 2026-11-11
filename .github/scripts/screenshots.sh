@@ -74,9 +74,20 @@ run_theme() { # theme-number name
   # Show a friendly server name instead of the CI machine's host name.
   [ -f /tmp/jellyfin.json ] && servers=", \"servers\": [$(jq -c '.name = "Home Jellyfin"' /tmp/jellyfin.json)]"
   echo "{\"theme\": $1, \"volume\": 0.8, \"glass\": false$servers}" > "$SETTINGS"
-  "$BIN" > "$OUT/log-$2.txt" 2>&1 &
+  if [ "$2" = dark ]; then
+    # This run shows the startup animation.
+    UNITN_NO_INTRO= "$BIN" > "$OUT/log-$2.txt" 2>&1 &
+  else
+    "$BIN" > "$OUT/log-$2.txt" 2>&1 &
+  fi
   local pid=$!
-  sleep 8
+  if [ "$2" = dark ]; then
+    sleep 1.8; shot "$2-intro-1"
+    sleep 2.6; shot "$2-intro-2"
+    sleep 3.6
+  else
+    sleep 8
+  fi
   WID=$(xdotool search --name Unitn | head -1)
   xdotool windowmove "$WID" 0 0 windowsize "$WID" 1280 820
   sleep 2

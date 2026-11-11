@@ -5742,6 +5742,7 @@ version = "0.5.10"
 dependencies = [
  "anyhow",
  "directories",
+ "image",
  "objc2 0.6.5",
  "rfd",
  "serde",

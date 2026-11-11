@@ -233,6 +233,13 @@ export component AppWindow inherits Window {
     callback gapless-albums-changed(bool);
     in property <bool> lyrics-online: true;
     callback lyrics-online-changed(bool);
+    in property <bool> startup-sound: true;
+    callback startup-sound-changed(bool);
+    // Startup animation (see src/intro.rs).
+    in property <bool> intro-visible: false;
+    in property <bool> intro-fading: false;
+    in property <image> intro-frame;
+    callback intro-skip();
     callback radio-genre(string);
     callback add-custom-stream(string, string);
     callback play-station(int);
@@ -308,6 +315,7 @@ export component AppWindow inherits Window {
     keys := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
+            if (root.intro-visible) { root.intro-skip(); return accept; }
             if (event.modifiers.control || event.modifiers.meta) {
                 if (event.text == Key.RightArrow) { root.next(); return accept; }
                 if (event.text == Key.LeftArrow) { root.previous(); return accept; }
@@ -810,6 +818,8 @@ export component AppWindow inherits Window {
                             gapless-albums-changed(on) => { root.gapless-albums-changed(on); }
                             lyrics-online: root.lyrics-online;
                             lyrics-online-changed(on) => { root.lyrics-online-changed(on); }
+                            startup-sound: root.startup-sound;
+                            startup-sound-changed(on) => { root.startup-sound-changed(on); }
                         density-changed(c) => {
                             Theme.compact = c;
                             root.density-changed(c);
@@ -1543,6 +1553,27 @@ export component AppWindow inherits Window {
             vertical-alignment: center;
             horizontal-alignment: center;
             overflow: elide;
+        }
+    }
+
+    // Startup animation: covers the whole window, then fades into the app.
+    if root.intro-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #0C091E;
+        opacity: root.intro-fading ? 0 : 1;
+        animate opacity { duration: 450ms; easing: ease-in-out; }
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.intro-frame;
+            image-fit: cover;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.intro-skip(); }
         }
     }
 }
