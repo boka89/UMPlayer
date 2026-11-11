@@ -1175,6 +1175,7 @@ export component VizControls inherits Rectangle {
 /// The "Unitn Music" lockup, as in the startup animation.
 export component BrandMark inherits HorizontalLayout {
     spacing: 10px;
+    alignment: start;
     Image {
         source: @image-url("icons/brand.svg");
         width: 34px;
@@ -1182,6 +1183,7 @@ export component BrandMark inherits HorizontalLayout {
     }
     HorizontalLayout {
         spacing: 5px;
+        alignment: start;
         Text {
             text: "Unitn";
             color: Theme.fg;
