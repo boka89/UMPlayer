@@ -53,6 +53,8 @@ jobs:
             export UNITN_ANDROID_KEYSTORE="$RUNNER_TEMP/unitn-release.p12"
           fi
           .github/scripts/android-build.sh
+          apk=$(ls dist/android/Unitn_*_android.apk | head -1)
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk" > "$RUNNER_TEMP/certs.txt" 2>/dev/null || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
@@ -89,6 +91,54 @@ jobs:
         with:
           name: android-screenshots
           path: android-screenshots/
+
+      # Experimental public download: a pre-release (never "Latest", so the
+      # desktop downloads on the website are unaffected) with the APK signed
+      # with the permanent key. Only from android-spike, and only when the
+      # emulator run above passed.
+      - name: Publish the experimental APK (pre-release "android-preview")
+        if: github.event_name == 'push' && github.ref_name == 'android-spike' && success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HAS_KEY: ${{ secrets.UNITN_ANDROID_KEYSTORE_B64 != '' }}
+        run: |
+          set -e
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "RESULT android publish: SKIPPED (no permanent signing key)"; exit 0
+          fi
+          apk=$(ls dist/android/Unitn_*_android.apk | head -1)
+          version=$(basename "$apk" | sed -E 's/^Unitn_(.*)_android\.apk$/\1/')
+          cp "$apk" dist/android/unitn-android-experimental.apk
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          **Experimental Android build of Unitn player ${version}.** Not tested on a real phone yet.
+
+          | File | |
+          |---|---|
+          | \`unitn-android-experimental.apk\` | Android 8.0 or newer, ARM64 phones and tablets (also x86_64) |
+
+          **Install:** download the APK on your phone, open it, and allow your browser or file manager to
+          *install unknown apps* when Android asks. Updates install over the old version (same signing key).
+
+          **Works in the emulator:** phone layout, local music from the Music and Download folders,
+          playback in the background with a media notification, lock-screen and headset controls,
+          internet radio, podcasts, equalizer, Plex sign-in through the browser.
+
+          **Not tested yet:** real phones (some makers' battery savers may stop playback), Bluetooth and
+          headset hardware, long screen-off playback, slow phones. Please report what you find in
+          [Issues](https://github.com/boka89/Unitn/issues).
+
+          Certificate SHA-256: \`$(grep -m1 -o 'SHA-256 digest: .*' "$RUNNER_TEMP/certs.txt" 2>/dev/null | cut -d' ' -f3 || true)\`
+
+          Built from \`${GITHUB_SHA::7}\` on the \`android-spike\` branch.
+          EOF
+          sed -i 's/^          //' "$RUNNER_TEMP/notes.md"
+          gh release delete android-preview --cleanup-tag --yes 2>/dev/null || true
+          gh release create android-preview \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Unitn player ${version} for Android (experimental)" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            dist/android/unitn-android-experimental.apk
+          echo "RESULT android publish: OK (${version})"
 
       - name: Publish screenshots to the ci-android branch
         if: github.event_name == 'push' && always()
