@@ -20,7 +20,6 @@ unitn = { path = "../unitn" }
 slint = { version = "1.8", features = ["backend-android-activity-06"] }
 # Calls into the Java side (java/net/bokors/unitn).
 jni = "0.21"
-ndk-context = "0.1"
 
 [profile.release]
 strip = true

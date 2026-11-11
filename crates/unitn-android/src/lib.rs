@@ -5,22 +5,33 @@
 #![cfg(target_os = "android")]
 
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use jni::objects::{JClass, JObject, JValue};
 use jni::sys::{jint, jlong};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use unitn::{NowPlaying, Platform};
 
+/// The Java VM and the `MainActivity` object (a global reference that lives
+/// as long as the activity), as handed over by Android.
+static VM: AtomicUsize = AtomicUsize::new(0);
+static ACTIVITY: AtomicUsize = AtomicUsize::new(0);
+
 #[no_mangle]
 fn android_main(app: unitn::AndroidApp) {
+    VM.store(app.vm_as_ptr() as usize, Ordering::Relaxed);
+    ACTIVITY.store(app.activity_as_ptr() as usize, Ordering::Relaxed);
     register_natives();
     unitn::android_main(app, Box::new(Java));
 }
 
 /// Runs `f` with a JNI environment and the activity object.
 fn with_activity<R>(what: &str, f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) -> Option<R> {
-    let context = ndk_context::android_context();
-    let vm = match unsafe { JavaVM::from_raw(context.vm().cast()) } {
+    let (vm, activity) = (VM.load(Ordering::Relaxed), ACTIVITY.load(Ordering::Relaxed));
+    if vm == 0 || activity == 0 {
+        return None;
+    }
+    let vm = match unsafe { JavaVM::from_raw(vm as *mut jni::sys::JavaVM) } {
         Ok(vm) => vm,
         Err(e) => {
             unitn::logcat(&format!("android: {what}: no Java VM: {e}"));
@@ -35,7 +46,7 @@ fn with_activity<R>(what: &str, f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::er
         }
     };
     // The activity is a global reference owned by the Android glue.
-    let activity = unsafe { JObject::from_raw(context.context().cast()) };
+    let activity = unsafe { JObject::from_raw(activity as jni::sys::jobject) };
     // A local frame frees the Java strings made during the call.
     let result = env.with_local_frame(16, |env| f(env, &activity));
     if env.exception_check().unwrap_or(false) {
@@ -105,6 +116,13 @@ impl Platform for Java {
             env.call_method(activity, "openUrl", "(Ljava/lang/String;)Z", &[JValue::Object(&url)])?.z()
         })
         .unwrap_or(false)
+    }
+
+    fn light_system_bars(&self, light: bool) {
+        with_activity("setting the status bar colors", |env, activity| {
+            env.call_method(activity, "setLightSystemBars", "(Z)V", &[JValue::Bool(light as u8)])?;
+            Ok(())
+        });
     }
 
     fn request_permissions(&self) {

@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.View;
 
 import java.util.ArrayList;
 
@@ -74,6 +75,23 @@ public class MainActivity extends NativeActivity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         command(PERMISSIONS, 0);
+    }
+
+    /** Dark icons in the status and navigation bars when the app's theme is light. */
+    @SuppressWarnings("deprecation")
+    public void setLightSystemBars(final boolean light) {
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                View decor = getWindow().getDecorView();
+                int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                int flags = decor.getSystemUiVisibility();
+                decor.setSystemUiVisibility(light ? (flags | mask) : (flags & ~mask));
+                // The app's own background and tab bar colors (ui/theme.slint).
+                getWindow().setStatusBarColor(light ? 0xFFF6F6F9 : 0xFF0F0F13);
+                getWindow().setNavigationBarColor(light ? 0xFFEDEDF2 : 0xFF15151B);
+            }
+        });
     }
 
     /** Opens a web page in the browser (Plex sign-in). */

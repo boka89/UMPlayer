@@ -38,6 +38,8 @@ pub trait Platform: Send + Sync {
     fn open_url(&self, url: &str) -> bool;
     /// Asks for access to the music files and for notifications, if missing.
     fn request_permissions(&self);
+    /// Dark icons in the status and navigation bars (for the light theme).
+    fn light_system_bars(&self, light: bool);
 }
 
 static PLATFORM: OnceLock<Box<dyn Platform>> = OnceLock::new();

@@ -186,6 +186,25 @@ fn run(paths: settings::Paths) -> Result<()> {
         });
     }
 
+    // Android: the status bar icons follow the theme (dark icons on light).
+    #[cfg(target_os = "android")]
+    let _bars_timer = {
+        let weak = ui.as_weak();
+        let mut shown: Option<bool> = None;
+        let timer = Timer::default();
+        timer.start(TimerMode::Repeated, Duration::from_millis(500), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let dark = ui.global::<Theme>().get_dark();
+            if shown != Some(dark) {
+                shown = Some(dark);
+                if let Some(platform) = android::platform() {
+                    platform.light_system_bars(!dark);
+                }
+            }
+        });
+        timer
+    };
+
     unitn_core::log::log("startup: ready");
     slint::run_event_loop()?;
     ui.hide()?;

@@ -58,20 +58,22 @@ ok install
 adb shell pm grant $APP android.permission.READ_MEDIA_AUDIO
 adb shell pm grant $APP android.permission.POST_NOTIFICATIONS
 
+# Positions (screen pixels, 1080x2400 at 420 dpi): the five tabs are at
+# x = 108, 324, 540, 756, 972 on y = 2200; the small player is at y = 2040.
+TAB_Y=2200
+savelog() { applog > "$OUT/logcat-$1.txt"; }
+
 # --- 1. local songs, then into the background -------------------------------
 props "/sdcard/Music/TT/ES/1.wav,/sdcard/Music/TT/ES/2.wav,/sdcard/Music/TT/ES/3.wav" 1
 adb logcat -c
 start_app
 wait_for "ui: event Position" 4 60
+sleep 2
 shot phone-albums
 check "startup" logged "startup: ready"
 check "local song plays" logged "ui: event Position"
-tap 300 2100 3          # the small player -> Now Playing
+tap 300 2040 3          # the small player -> Now Playing
 shot phone-nowplaying
-tap 540 600 1           # wake the visualizer buttons
-tap 270 2260 3          # Albums tab
-tap 270 560 3           # first album
-shot phone-album
 
 adb shell input keyevent KEYCODE_HOME
 sleep 3
@@ -94,34 +96,48 @@ adb shell cmd statusbar collapse; sleep 1
 # Headset / Bluetooth buttons.
 adb shell input keyevent KEYCODE_MEDIA_PAUSE
 if wait_for "ui: event State(Paused)" 1 10; then ok "media button pauses"; else fail "media button pauses"; fi
+paused=$(count "ui: event State(Playing)")
 adb shell input keyevent KEYCODE_MEDIA_PLAY
-if wait_for "ui: event State(Playing)" 2 10; then ok "media button resumes"; else fail "media button resumes"; fi
-adb shell input keyevent KEYCODE_MEDIA_NEXT
-sleep 3
+if wait_for "ui: event State(Playing)" "$((paused + 1))" 10; then ok "media button resumes"; else fail "media button resumes"; fi
 
 # --- 2. back in the app: the other pages ------------------------------------
 start_app; sleep 3
-tap 486 2260 3; shot phone-songs       # Songs tab
-tap 702 2260 8; shot phone-radio       # Radio tab
-tap 918 2260 5; shot phone-podcasts    # Podcasts tab
-tap 1026 2260 3; shot phone-more       # More
+tap 108 $TAB_Y 3; tap 270 480 3; shot phone-album             # Albums -> first album
+tap 324 $TAB_Y 3; shot phone-songs                            # Songs
+tap 1006 281 2; shot phone-song-menu; adb shell input keyevent KEYCODE_BACK; sleep 1
+tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
+tap 540 $TAB_Y 8; shot phone-radio                            # Radio
+tap 756 $TAB_Y 5; shot phone-podcasts                         # Podcasts
+tap 972 $TAB_Y 3; shot phone-more                             # More
+tap 211 1087 3; shot phone-queue                              # More -> Queue
+tap 972 $TAB_Y 2; tap 211 492 3; shot phone-artists           # More -> Artists
+tap 972 $TAB_Y 2; tap 989 1860 3; shot phone-settings         # More -> Settings
+adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
+adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
+tap 300 2040 3; tap 440 576 3; shot phone-equalizer           # Now Playing -> Equalizer
+tap 440 576 1
 check "still running" adb shell pidof $APP
+savelog local
 
 # --- 3. internet radio + the browser hand-over ------------------------------
 adb shell am force-stop $APP
 props "$STREAM" 1
+adb logcat -c
 start_app
 if wait_for "ui: event StreamTitle\|ui: event Position" 6 60; then ok "radio plays"; else fail "radio plays"; fi
-tap 300 2100 4
+sleep 3
+tap 300 2040 4
 shot phone-radio-playing
+savelog radio
 
 adb shell am force-stop $APP
 props "" 1 "https://app.plex.tv/auth#?test=unitn"
 adb logcat -c
 start_app; sleep 6
 if logged "open_url test: true"; then ok "opens the browser (Plex sign-in)"; else fail "opens the browser (Plex sign-in)"; fi
-adb logcat -d 2>/dev/null | grep -m3 "android.intent.action.VIEW" | cut -c1-220
-applog > "$OUT/logcat-unitn-browser.txt"
+adb logcat -d 2>/dev/null | grep -m2 "android.intent.action.VIEW" | cut -c1-200
+shot phone-browser
+savelog browser
 adb shell am force-stop $APP
 
 # --------------------------------------------------------------- tablet size
@@ -133,10 +149,10 @@ shot tablet-playing
 adb shell am force-stop $APP
 props
 
-adb logcat -d -s unitn:V > "$OUT/logcat-unitn.txt" 2>/dev/null
+savelog tablet
 adb logcat -d '*:E' 2>/dev/null | grep -i -E "unitn|FATAL|AndroidRuntime|libc  " | tail -200 > "$OUT/logcat-errors.txt"
 if [ "$FAILED" = 1 ]; then
-  echo "--- app log (last 80 lines) ---"; tail -80 "$OUT/logcat-unitn.txt"
+  echo "--- app log, local songs run (without the position lines) ---"; grep -v "event Position" "$OUT/logcat-local.txt" | tail -80
   echo "--- errors ---"; tail -60 "$OUT/logcat-errors.txt"
 fi
 exit "$FAILED"
