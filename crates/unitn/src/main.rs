@@ -161,6 +161,7 @@ fn run() -> Result<()> {
         let timer = Rc::new(Timer::default());
         let resize_weak = ui.as_weak();
         let resize_app = app.clone();
+        let resize_save = Rc::new(Timer::default());
         ui.window().on_winit_window_event(move |_, event| {
             match event {
                 WindowEvent::Resized(_) => {
@@ -168,6 +169,7 @@ fn run() -> Result<()> {
                     // smaller than the size the player still works at.
                     let weak = resize_weak.clone();
                     let app = resize_app.clone();
+                    let save_timer = resize_save.clone();
                     Timer::single_shot(Duration::ZERO, move || {
                         if let Some(ui) = weak.upgrade() {
                             keep_min_size(&ui);
@@ -179,6 +181,14 @@ fn run() -> Result<()> {
                                 if let Ok(mut app) = app.try_borrow_mut() {
                                     app.remember_window(size.width, size.height, window.is_maximized());
                                 }
+                                // Save shortly after resizing stops: quitting
+                                // with Cmd+Q on macOS skips the save at exit.
+                                let app = app.clone();
+                                save_timer.start(TimerMode::SingleShot, Duration::from_millis(800), move || {
+                                    if let Ok(app) = app.try_borrow() {
+                                        app.save_settings();
+                                    }
+                                });
                             }
                         }
                     });
