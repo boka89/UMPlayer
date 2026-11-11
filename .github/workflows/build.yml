@@ -35,11 +35,20 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # Ubuntu's mirrors sometimes stall or fail to resolve on the runners:
+        # short timeouts, retries, and a step timeout instead of hanging.
+        timeout-minutes: 12
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev \
-            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            if sudo apt-get $APT update && sudo apt-get $APT install -y --no-install-recommends \
+                libasound2-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev \
+                libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev; then
+              exit 0
+            fi
+            echo "apt failed (attempt $attempt), retrying in 20 s"; sleep 20
+          done
+          exit 1
 
       - uses: dtolnay/rust-toolchain@stable
 
