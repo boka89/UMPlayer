@@ -248,6 +248,9 @@ mod tests {
 
     impl Read for Dropping {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.pos >= self.data.len() {
+                return Ok(0); // the real end of the file
+            }
             if self.pos >= self.cut {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed connection"));
             }
