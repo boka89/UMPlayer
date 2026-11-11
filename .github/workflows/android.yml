@@ -54,7 +54,7 @@ jobs:
           fi
           .github/scripts/android-build.sh
           apk=$(ls dist/android/Unitn_*_android.apk | head -1)
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk" > "$RUNNER_TEMP/certs.txt" 2>/dev/null || true
+          "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/certs.txt" 2>/dev/null || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
@@ -119,15 +119,15 @@ jobs:
           **Install:** download the APK on your phone, open it, and allow your browser or file manager to
           *install unknown apps* when Android asks. Updates install over the old version (same signing key).
 
-          **Works in the emulator:** phone layout, local music from the Music and Download folders,
-          playback in the background with a media notification, lock-screen and headset controls,
-          internet radio, podcasts, equalizer, Plex sign-in through the browser.
+          **Checked in the Android 14 emulator:** the phone layout on every page, local music from the
+          Music and Download folders, playback in the background with a media notification and
+          lock-screen/headset controls, internet radio, and the hand-over to the browser for the Plex sign-in.
 
           **Not tested yet:** real phones (some makers' battery savers may stop playback), Bluetooth and
           headset hardware, long screen-off playback, slow phones. Please report what you find in
           [Issues](https://github.com/boka89/Unitn/issues).
 
-          Certificate SHA-256: \`$(grep -m1 -o 'SHA-256 digest: .*' "$RUNNER_TEMP/certs.txt" 2>/dev/null | cut -d' ' -f3 || true)\`
+          Certificate SHA-256: \`$(grep -m1 -i 'SHA-256 digest:' "$RUNNER_TEMP/certs.txt" 2>/dev/null | sed 's/.*: *//' || true)\`
 
           Built from \`${GITHUB_SHA::7}\` on the \`android-spike\` branch.
           EOF
