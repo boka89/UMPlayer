@@ -114,6 +114,9 @@ tap 972 $TAB_Y 2; tap 211 492 3; shot phone-artists           # More -> Artists
 tap 972 $TAB_Y 2; tap 989 1860 3; shot phone-settings         # More -> Settings
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
+tap 224 1485 3; shot phone-add-server                         # Settings -> Add server
+tap 400 321 2; shot phone-add-server-plex                     # its Plex tab
+adb shell input keyevent KEYCODE_BACK; sleep 2                # Back closes the dialog
 tap 300 2040 3; tap 440 576 3; shot phone-equalizer           # Now Playing -> Equalizer
 tap 440 576 1
 # Back: Now Playing -> Albums, then out of the app (which keeps playing).
