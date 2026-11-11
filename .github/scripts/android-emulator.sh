@@ -42,6 +42,11 @@ result "audio output" "audio: output device"
 result "radio playback" "ui: event Position"
 if adb shell pidof net.bokors.unitn >/dev/null; then echo "RESULT android still running: OK"; else echo "RESULT android still running: FAILED"; FAILED=1; fi
 
+# Touch: open Radio and Now Playing from the sidebar (positions in screen
+# pixels on the 2560x1800 tablet). Only pictures, never a failure.
+adb shell input tap 155 615 && sleep 8 && shot tablet-radio
+adb shell input tap 196 865 && sleep 4 && shot tablet-nowplaying
+
 # The desktop layout on a phone-sized screen (expected to be cramped: there
 # is no phone layout yet). Only a picture, never a failure.
 adb shell wm size 1080x2400 && adb shell wm density 420 && sleep 6 && shot phone-portrait

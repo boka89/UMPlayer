@@ -313,6 +313,12 @@ export component AppWindow inherits Window {
 
     // Keyboard shortcuts (keys typed into text fields are handled there first).
     keys := FocusScope {
+        // Keep clear of the system bars on phones and tablets (status bar,
+        // navigation bar, notch). The insets are zero on the desktop.
+        x: root.safe-area-insets.left;
+        y: root.safe-area-insets.top;
+        width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
+        height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom;
         init => { self.focus(); }
         key-pressed(event) => {
             if (root.intro-visible) { root.intro-skip(); return accept; }
