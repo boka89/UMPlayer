@@ -82,9 +82,16 @@ run_theme() { # theme-number name
   fi
   local pid=$!
   if [ "$2" = dark ]; then
-    sleep 1.8; shot "$2-intro-1"
-    sleep 2.6; shot "$2-intro-2"
-    sleep 3.6
+    for _ in $(seq 50); do
+      WID=$(xdotool search --name Unitn | head -1 || true)
+      [ -n "$WID" ] && break
+      sleep 0.1
+    done
+    xdotool windowmove "$WID" 0 0 windowsize "$WID" 1280 820 || true
+    sleep 1.4; shot "$2-intro-1"
+    sleep 1.6; shot "$2-intro-2"
+    sleep 1.8; shot "$2-intro-3"
+    sleep 4
   else
     sleep 8
   fi
