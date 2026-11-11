@@ -97,5 +97,20 @@ shot_with glass-off-2 '{"theme": 2, "volume": 0.5}'
 shot_with glass-old-setting-2 '{"theme": 2, "volume": 0.5, "glass": true}'
 shot_with glass-on-dark-2 '{"theme": 2, "volume": 0.5, "frosted_glass": true}'
 shot_with glass-on-light-2 '{"theme": 1, "volume": 0.5, "frosted_glass": true}'
+echo "=================== startup animation and window size"
+# The splash plays, then the main window opens at the size saved last time.
+echo '{"theme": 2, "volume": 0.3, "window_width": 1100.0, "window_height": 700.0}' > "$CONF/settings.json"
+UNITN_NO_INTRO= "$BIN" > out-intro.txt 2>&1 &
+pid=$!
+sleep 2.5; screencapture -x mac-screenshots/intro-splash.png || true
+sleep 6; screencapture -x mac-screenshots/intro-after.png || true
+kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+grep -E "intro|startup|panic|error" out-intro.txt || true
+if grep -q "intro: .* frames shown" out-intro.txt && grep -q "startup: window shown" out-intro.txt && ! grep -q PANIC out-intro.txt; then
+  echo "RESULT intro: OK"
+else
+  echo "RESULT intro: FAIL"; fail=1
+fi
+grep -o '"window_width":[^,]*,"window_height":[^,}]*' "$CONF/settings.json" || grep -E 'window_(width|height)' "$CONF/settings.json" || true
 ls -la mac-screenshots
 exit $fail
