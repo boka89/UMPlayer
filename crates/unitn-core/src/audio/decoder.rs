@@ -125,7 +125,19 @@ impl Decoder {
                     .timeout_connect(std::time::Duration::from_secs(10))
                     .timeout_read(std::time::Duration::from_secs(30))
                     .build();
-                let resp = agent.get(url).call().map_err(|e| anyhow::anyhow!("server: {}", redact(&e.to_string())))?;
+                // A refused or dropped first request is retried a few times.
+                let mut attempt = 0;
+                let resp = loop {
+                    attempt += 1;
+                    match agent.get(url).call() {
+                        Ok(resp) => break resp,
+                        Err(ureq::Error::Transport(e)) if attempt < 3 => {
+                            crate::log::log(format!("audio: server request failed ({}), retrying", redact(&e.to_string())));
+                            std::thread::sleep(std::time::Duration::from_millis(400 * attempt));
+                        }
+                        Err(e) => return Err(anyhow::anyhow!("server: {}", redact(&e.to_string()))),
+                    }
+                };
                 let content_type = resp.content_type().to_string();
                 let len = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok());
                 crate::log::log(format!(
@@ -140,7 +152,28 @@ impl Decoder {
                         hint.mime_type(&content_type);
                     }
                 }
-                let reader = prefetch::PrefetchReader::from_reader(resp.into_reader(), len)?;
+                // If the server drops the connection mid-file, continue
+                // with a range request from the bytes already loaded.
+                let resume_url = url.clone();
+                let resume_agent = agent.clone();
+                let reopen: prefetch::Reopen = Box::new(move |offset| {
+                    let resp = resume_agent
+                        .get(&resume_url)
+                        .set("Range", &format!("bytes={offset}-"))
+                        .call()
+                        .map_err(|e| std::io::Error::new(ErrorKind::Other, redact(&e.to_string())))?;
+                    let full = resp.status() != 206;
+                    let mut reader = resp.into_reader();
+                    if full {
+                        // The server ignored the range: skip what we already have.
+                        let skipped = std::io::copy(&mut (&mut reader).take(offset), &mut std::io::sink())?;
+                        if skipped < offset {
+                            return Err(std::io::Error::new(ErrorKind::UnexpectedEof, "file got shorter"));
+                        }
+                    }
+                    Ok(Box::new(reader) as Box<dyn std::io::Read + Send>)
+                });
+                let reader = prefetch::PrefetchReader::resumable(resp.into_reader(), len, reopen)?;
                 let mss = MediaSourceStream::new(Box::new(reader), Default::default());
                 Demux::Format(probe(&hint, mss, &format_options)?)
             }
