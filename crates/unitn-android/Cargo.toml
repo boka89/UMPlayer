@@ -1,0 +1,23 @@
+# Android build of Unitn (experimental). Deliberately not a member of the
+# workspace: it has its own lock file, so the desktop builds and their
+# Cargo.lock stay exactly as they are. Build it with
+# .github/scripts/android-build.sh.
+[package]
+name = "unitn-android"
+description = "Unitn player for Android (experimental)"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+unitn = { path = "../unitn" }
+# Turns on Slint's Android backend for the whole build (features are shared
+# with the `unitn` crate).
+slint = { version = "1.8", features = ["backend-android-activity-06"] }
+
+[profile.release]
+strip = true

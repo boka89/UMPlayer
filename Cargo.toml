@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/unitn-core", "crates/unitn"]
+# The experimental Android build has its own lock file (see its Cargo.toml).
+exclude = ["crates/unitn-android"]
 
 [workspace.package]
 version = "0.5.13"

@@ -1,0 +1,94 @@
+name: Android (experimental)
+
+# Builds the Android test APK, starts it in an emulator with a radio stream
+# and publishes screenshots and the app log to the ci-android branch.
+on:
+  push:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/android.yml"
+      - ".github/scripts/android-*.sh"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK + emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: crates/unitn-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build APK
+        run: .github/scripts/android-build.sh
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: unitn-android-apk
+          path: |
+            dist/android/*.apk
+            dist/android/Cargo.lock
+          if-no-files-found: error
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run in the emulator (tablet, Android 14)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          profile: pixel_c
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/android-emulator.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-screenshots
+          path: android-screenshots/
+
+      - name: Publish screenshots to the ci-android branch
+        if: github.event_name == 'push' && always()
+        run: |
+          set -e
+          [ -d android-screenshots ] || mkdir android-screenshots
+          dir=$(mktemp -d)
+          cp -r android-screenshots "$dir/"
+          [ -f dist/android/Cargo.lock ] && cp dist/android/Cargo.lock "$dir/Cargo.android.lock"
+          cd "$dir"
+          echo "${GITHUB_SHA} (${GITHUB_REF_NAME})" > COMMIT
+          git init -q -b ci-android
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "Android emulator run for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-android

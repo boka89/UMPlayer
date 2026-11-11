@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Version code/name and SDK levels are filled in by .github/scripts/android-build.sh. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="net.bokors.unitn">
+
+    <!-- Internet radio, music servers, podcasts, lyrics, album art. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- hasCode=false: the app is one native library, there is no Java code in the APK. -->
+    <application
+        android:label="Unitn"
+        android:icon="@mipmap/ic_launcher"
+        android:hasCode="false"
+        android:extractNativeLibs="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
+            <meta-data android:name="android.app.lib_name" android:value="unitn_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

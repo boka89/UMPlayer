@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
+#[cfg(not(target_os = "android"))]
+use anyhow::anyhow;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Where Unitn keeps its files.
@@ -13,11 +15,21 @@ pub struct Paths {
 }
 
 impl Paths {
+    /// The user's data and config folders, as usual on each desktop OS.
+    #[cfg(not(target_os = "android"))]
     pub fn new() -> Result<Self> {
         let dirs = directories::ProjectDirs::from("net", "bokors", "Unitn")
             .ok_or_else(|| anyhow!("could not determine the user's data directory"))?;
-        let data = dirs.data_dir().to_path_buf();
-        let config = dirs.config_dir().to_path_buf();
+        Self::from_dirs(dirs.data_dir().to_path_buf(), dirs.config_dir().to_path_buf())
+    }
+
+    /// Everything inside one folder (Android: the app's private storage).
+    #[cfg(target_os = "android")]
+    pub fn in_dir(dir: &Path) -> Result<Self> {
+        Self::from_dirs(dir.to_path_buf(), dir.to_path_buf())
+    }
+
+    fn from_dirs(data: PathBuf, config: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&data)?;
         std::fs::create_dir_all(&config)?;
         Ok(Self {
@@ -27,6 +39,19 @@ impl Paths {
             settings: config.join("settings.json"),
         })
     }
+}
+
+/// The OS music folder, which a new library starts with.
+#[cfg(not(target_os = "android"))]
+pub fn default_music_folder() -> Option<PathBuf> {
+    directories::UserDirs::new().and_then(|d| d.audio_dir().map(Path::to_path_buf))
+}
+
+/// Android: reading the shared Music folder needs a storage permission,
+/// which the test build does not ask for yet.
+#[cfg(target_os = "android")]
+pub fn default_music_folder() -> Option<PathBuf> {
+    None
 }
 
 /// Theme mode as used by the UI: follow the OS, or force light/dark.

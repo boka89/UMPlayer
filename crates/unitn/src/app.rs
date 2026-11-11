@@ -499,7 +499,7 @@ impl App {
 
         // First run: use the OS music folder.
         if self.library.folders().map(|f| f.is_empty()).unwrap_or(false) {
-            if let Some(music) = directories::UserDirs::new().and_then(|d| d.audio_dir().map(Path::to_path_buf)) {
+            if let Some(music) = crate::settings::default_music_folder() {
                 if music.is_dir() {
                     let _ = self.library.add_folder(&music);
                 }
@@ -3400,11 +3400,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     {
         let app = app.clone();
         ui.on_fix_choose_image(move || {
-            let file = rfd::FileDialog::new()
-                .set_title("Choose a cover image")
-                .add_filter("Images", &["jpg", "jpeg", "png"])
-                .pick_file();
-            if let Some(file) = file {
+            if let Some(file) = crate::dialogs::pick_cover_image() {
                 with(&app, |a| a.fix_set_local_image(file));
             }
         });
@@ -3416,12 +3412,8 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
         let weak = ui.as_weak();
         ui.on_export_playlist(move || {
             let name = weak.upgrade().map(|u| u.get_playlist_name().to_string()).unwrap_or_default();
-            let file = rfd::FileDialog::new()
-                .set_title("Export playlist")
-                .set_file_name(format!("{}.m3u", if name.is_empty() { "Playlist" } else { &name }))
-                .add_filter("M3U playlist", &["m3u", "m3u8"])
-                .save_file();
-            if let Some(file) = file {
+            let file_name = format!("{}.m3u", if name.is_empty() { "Playlist" } else { &name });
+            if let Some(file) = crate::dialogs::save_playlist(&file_name) {
                 with(&app, |a| a.export_playlist(file));
             }
         });
@@ -3429,11 +3421,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     {
         let app = app.clone();
         ui.on_import_playlist(move || {
-            let file = rfd::FileDialog::new()
-                .set_title("Import playlist")
-                .add_filter("M3U playlist", &["m3u", "m3u8"])
-                .pick_file();
-            if let Some(file) = file {
+            if let Some(file) = crate::dialogs::pick_playlist() {
                 with(&app, |a| a.import_playlist(file));
             }
         });
@@ -3445,7 +3433,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     {
         let app = app.clone();
         ui.on_add_folder(move || {
-            if let Some(folder) = rfd::FileDialog::new().set_title("Add music folder").pick_folder() {
+            if let Some(folder) = crate::dialogs::pick_music_folder() {
                 with(&app, |a| a.add_folder(folder));
             }
         });

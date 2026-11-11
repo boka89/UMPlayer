@@ -12,10 +12,15 @@ homepage = "https://github.com/boka89/Unitn"
 unitn-core = { path = "../unitn-core" }
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
-directories = "5"
-rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+slint = "1.8"
+
+# Desktop only: native dialogs, media keys, the OS folders and direct access
+# to the window. The Android build (crates/unitn-android) leaves them out.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+directories = "5"
+rfd = "0.15"
 slint = { version = "1.8", features = ["unstable-winit-030"] }
 souvlaki = { version = "0.7", default-features = false, features = ["use_zbus"] }
 
