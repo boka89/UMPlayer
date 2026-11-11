@@ -17,6 +17,8 @@ component EmptyState inherits VerticalLayout {
 
     alignment: center;
     spacing: 10px;
+    padding-left: 24px;
+    padding-right: 24px;
     HorizontalLayout {
         alignment: center;
         Image {
@@ -55,10 +57,12 @@ component EmptyState inherits VerticalLayout {
 component AlbumCard inherits Rectangle {
     in property <AlbumItem> item;
     in property <bool> playing;
+    /// Side of the cover; the card is sized around it.
+    in property <length> art: 160px;
     callback clicked;
 
-    width: 176px;
-    height: 232px;
+    width: root.art + 16px;
+    height: root.art + 72px;
     border-radius: 12px;
     background: touch.has-hover ? Theme.surface : transparent;
     animate background { duration: 120ms; }
@@ -67,10 +71,10 @@ component AlbumCard inherits Rectangle {
         padding: 8px;
         spacing: 4px;
         Rectangle {
-            width: 160px;
-            height: 160px;
+            width: root.art;
+            height: root.art;
             Artwork {
-                size: 160px;
+                size: root.art;
                 source: root.item.cover;
                 has-image: root.item.has-cover;
             }
@@ -136,9 +140,14 @@ export component AlbumsPage inherits Rectangle {
     callback open-album(int);
     callback add-folder();
 
-    property <length> cell-w: 184px;
-    property <length> cell-h: 240px;
-    property <int> cols: Math.max(1, Math.floor((root.width - 40px) / cell-w));
+    // Phone: the covers share the width (two or more per row).
+    property <int> cols: Theme.phone
+        ? Math.max(2, Math.floor((root.width - 16px) / 170px))
+        : Math.max(1, Math.floor((root.width - 40px) / 184px));
+    property <length> cell-w: Theme.phone ? (root.width - 16px) / root.cols : 184px;
+    property <length> art: Theme.phone ? root.cell-w - 24px : 160px;
+    property <length> cell-h: root.art + 80px;
+    property <length> left: Theme.phone ? 8px : 20px;
 
     if root.albums.length > 0: ScrollView {
         width: parent.width;
@@ -146,8 +155,9 @@ export component AlbumsPage inherits Rectangle {
         content-width: self.visible-width;
         content-height: Math.ceil(root.albums.length / root.cols) * root.cell-h + 32px;
         for album[i] in root.albums: AlbumCard {
-            x: 20px + Math.mod(i, root.cols) * root.cell-w;
+            x: root.left + Math.mod(i, root.cols) * root.cell-w;
             y: 8px + Math.floor(i / root.cols) * root.cell-h;
+            art: root.art;
             item: album;
             playing: album.key != "" && album.key == root.playing-album;
             clicked => { root.open-album(i); }
@@ -158,8 +168,10 @@ export component AlbumsPage inherits Rectangle {
         height: parent.height;
         icon: @image-url("icons/album.svg");
         title: root.scanning ? "Scanning your music…" : (root.library-empty ? "Your library is empty" : "No albums found");
-        message: root.library-empty && !root.scanning ? "Add a folder with music files (MP3, FLAC, AAC, OGG, WAV…) to get started." : "";
-        action: root.library-empty && !root.scanning ? "Add music folder" : "";
+        message: !root.library-empty || root.scanning ? ""
+            : Theme.mobile ? "Unitn plays the songs in this device's Music and Download folders. Copy music there and allow Unitn to see it."
+            : "Add a folder with music files (MP3, FLAC, AAC, OGG, WAV…) to get started.";
+        action: !root.library-empty || root.scanning ? "" : Theme.mobile ? "Find my music" : "Add music folder";
         activated => { root.add-folder(); }
     }
 }
@@ -175,8 +187,11 @@ export component TrackRow inherits Rectangle {
     /// "…" button pressed; position (window coordinates) for the menu.
     callback menu(length, length);
 
-    height: Theme.compact ? 30px : 46px;
-    border-radius: Theme.compact ? 4px : 6px;
+    /// "Cozy" rows are a desktop choice; phones always get the taller rows.
+    property <bool> cozy: Theme.compact && !Theme.phone;
+
+    height: Theme.phone ? 54px : root.cozy ? 30px : 46px;
+    border-radius: root.cozy ? 4px : 6px;
     background: root.current ? Theme.accent-soft
         : touch.has-hover ? Theme.surface-hover
         : root.striped ? (Theme.dark ? #ffffff0a : #0000000a)
@@ -188,9 +203,9 @@ export component TrackRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 20px;
-        spacing: 16px;
+        padding-left: Theme.phone ? 4px : 12px;
+        padding-right: Theme.phone ? 4px : 20px;
+        spacing: Theme.phone ? 10px : 16px;
         Rectangle {
             width: 28px;
             if !root.current: Text {
@@ -220,11 +235,11 @@ export component TrackRow inherits Rectangle {
                 preferred-width: 0px;
                 text: root.item.title;
                 color: root.current ? Theme.accent : Theme.fg;
-                font-size: Theme.compact ? 13px : 14px;
+                font-size: root.cozy ? 13px : 14px;
                 font-weight: root.current ? 600 : 400;
                 overflow: elide;
             }
-            if !Theme.compact: Text {
+            if !root.cozy: Text {
                 min-width: 0px;
                 preferred-width: 0px;
                 text: root.item.artist;
@@ -234,7 +249,7 @@ export component TrackRow inherits Rectangle {
             }
         }
         // Cozy view in song lists: artist gets its own column.
-        if Theme.compact && root.show-album: Text {
+        if root.cozy && root.show-album: Text {
             min-width: 0px;
             preferred-width: 0px;
             horizontal-stretch: 2;
@@ -244,7 +259,7 @@ export component TrackRow inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        if root.show-album: Text {
+        if root.show-album && !Theme.phone: Text {
             min-width: 0px;
             preferred-width: 0px;
             horizontal-stretch: 2;
@@ -255,7 +270,7 @@ export component TrackRow inherits Rectangle {
             overflow: elide;
         }
         Text {
-            width: 52px;
+            width: Theme.phone ? 40px : 52px;
             text: root.item.duration;
             color: Theme.fg-muted;
             font-size: 12px;
@@ -266,8 +281,8 @@ export component TrackRow inherits Rectangle {
             alignment: center;
             IconButton {
                 icon: @image-url("icons/more.svg");
-                size: 28px;
-                icon-size: 16px;
+                size: Theme.phone ? 40px : 28px;
+                icon-size: Theme.phone ? 18px : 16px;
                 tint: Theme.fg-muted;
                 clicked => { root.menu(self.absolute-position.x, self.absolute-position.y + self.height); }
             }
@@ -287,13 +302,13 @@ export component AlbumDetailPage inherits Rectangle {
     callback density-changed(bool);
 
     VerticalLayout {
-        padding: 24px;
+        padding: Theme.phone ? 12px : 24px;
         padding-top: 8px;
-        spacing: 20px;
+        spacing: Theme.phone ? 12px : 20px;
         HorizontalLayout {
-            spacing: 24px;
+            spacing: Theme.phone ? 14px : 24px;
             Artwork {
-                size: 200px;
+                size: Theme.phone ? 112px : 200px;
                 source: root.album.cover;
                 has-image: root.album.has-cover;
             }
@@ -308,25 +323,29 @@ export component AlbumDetailPage inherits Rectangle {
                     letter-spacing: 1.5px;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.album.title;
                     color: Theme.fg;
-                    font-size: 30px;
+                    font-size: Theme.phone ? 20px : 30px;
                     font-weight: 800;
                     overflow: elide;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.album.year == "" ? root.album.artist : root.album.artist + " • " + root.album.year;
                     color: Theme.fg;
-                    font-size: 15px;
+                    font-size: Theme.phone ? 14px : 15px;
                     overflow: elide;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.info;
                     color: Theme.fg-muted;
                     font-size: 13px;
+                    overflow: elide;
                 }
-                Rectangle { height: 8px; }
-                HorizontalLayout {
+                if !Theme.phone: Rectangle { height: 8px; }
+                if !Theme.phone: HorizontalLayout {
                     alignment: start;
                     spacing: 10px;
                     PillButton {
@@ -351,6 +370,31 @@ export component AlbumDetailPage inherits Rectangle {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     DensitySwitch { changed(c) => { root.density-changed(c); } }
+                }
+            }
+        }
+        // Phone: the buttons get their own row under the cover.
+        if Theme.phone: HorizontalLayout {
+            alignment: start;
+            spacing: 10px;
+            PillButton {
+                text: "Play";
+                icon: @image-url("icons/play.svg");
+                primary: true;
+                clicked => { root.play(false); }
+            }
+            PillButton {
+                text: "Shuffle";
+                icon: @image-url("icons/shuffle.svg");
+                clicked => { root.play(true); }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: @image-url("icons/more.svg");
+                    size: 40px;
+                    icon-size: 18px;
+                    clicked => { root.album-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
                 }
             }
         }
@@ -451,8 +495,8 @@ export component SongsPage inherits Rectangle {
     if root.songs.length > 0: VerticalLayout {
         width: parent.width;
         height: parent.height;
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: Theme.phone ? 4px : 12px;
+        padding-right: Theme.phone ? 4px : 12px;
         ListView {
             for song[i] in root.songs: TrackRow {
                 item: song;
@@ -478,10 +522,10 @@ export component RadioPage inherits Rectangle {
     callback toggle-favorite(int);
 
     VerticalLayout {
-        padding-left: 24px;
-        padding-right: 24px;
+        padding-left: Theme.phone ? 12px : 24px;
+        padding-right: Theme.phone ? 12px : 24px;
         spacing: 12px;
-        HorizontalLayout {
+        if !Theme.phone: HorizontalLayout {
             spacing: 8px;
             alignment: start;
             Chip { text: "Popular"; selected: root.tab == 0; clicked => { root.select-tab(0); } }
@@ -498,6 +542,36 @@ export component RadioPage inherits Rectangle {
                 text: "Add stream URL";
                 icon: @image-url("icons/plus.svg");
                 clicked => { root.add-stream(); }
+            }
+        }
+        // Phone: the same row, scrolled sideways with a finger.
+        if Theme.phone: Rectangle {
+            height: 38px;
+            clip: true;
+            chip-flick := Flickable {
+                width: parent.width;
+                height: parent.height;
+                content-width: chip-row.preferred-width;
+                content-height: self.height;
+                chip-row := HorizontalLayout {
+                    width: chip-flick.content-width;
+                    height: chip-flick.height;
+                    spacing: 8px;
+                    alignment: start;
+                    Chip { text: "Popular"; selected: root.tab == 0; clicked => { root.select-tab(0); } }
+                    Chip { text: "Favorites"; selected: root.tab == 1; clicked => { root.select-tab(1); } }
+                    Chip { text: "Hungary"; selected: root.tab == 2; clicked => { root.select-tab(2); } }
+                    for g in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
+                        text: g;
+                        selected: false;
+                        clicked => { root.genre(g); }
+                    }
+                    PillButton {
+                        text: "Add stream URL";
+                        icon: @image-url("icons/plus.svg");
+                        clicked => { root.add-stream(); }
+                    }
+                }
             }
         }
         if root.status != "": Text {
@@ -605,8 +679,8 @@ export component QueuePage inherits Rectangle {
     if root.queue.length > 0: VerticalLayout {
         width: parent.width;
         height: parent.height;
-        padding-left: 24px;
-        padding-right: 24px;
+        padding-left: Theme.phone ? 12px : 24px;
+        padding-right: Theme.phone ? 12px : 24px;
         spacing: 8px;
         HorizontalLayout {
             alignment: space-between;
@@ -869,13 +943,13 @@ export component NowPlayingPage inherits Rectangle {
     }
 
     VerticalLayout {
-        padding: 28px;
+        padding: Theme.phone ? 14px : 28px;
         padding-top: 4px;
-        spacing: 24px;
+        spacing: Theme.phone ? 12px : 24px;
         HorizontalLayout {
-            spacing: 28px;
+            spacing: Theme.phone ? 14px : 28px;
             Artwork {
-                size: root.eq-open ? 140px : 200px;
+                size: Theme.phone ? (root.eq-open ? 72px : 104px) : (root.eq-open ? 140px : 200px);
                 source: root.cover;
                 has-image: root.has-cover;
                 placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
@@ -892,20 +966,24 @@ export component NowPlayingPage inherits Rectangle {
                     letter-spacing: 1.5px;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.has-track ? root.title : "Pick an album, a song or a station";
                     color: Theme.fg;
-                    font-size: 30px;
+                    font-size: Theme.phone ? 19px : 30px;
                     font-weight: 800;
+                    wrap: Theme.phone ? TextWrap.word-wrap : TextWrap.no-wrap;
+                    max-height: Theme.phone ? 52px : 60px;
                     overflow: elide;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.subtitle;
                     color: Theme.fg-muted;
-                    font-size: 15px;
+                    font-size: Theme.phone ? 14px : 15px;
                     overflow: elide;
                 }
             }
-            VerticalLayout {
+            if !Theme.phone: VerticalLayout {
                 alignment: start;
                 horizontal-stretch: 0;
                 HorizontalLayout {
@@ -927,7 +1005,24 @@ export component NowPlayingPage inherits Rectangle {
                 }
             }
         }
-        if root.eq-open: EqPanel {
+        // Phone: Lyrics and Equalizer buttons in their own row.
+        if Theme.phone: HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            PillButton {
+                text: "Lyrics";
+                icon: @image-url("icons/lyrics.svg");
+                primary: root.lyrics-open;
+                clicked => { root.lyrics-open-changed(!root.lyrics-open); }
+            }
+            PillButton {
+                text: "Equalizer";
+                icon: @image-url("icons/equalizer.svg");
+                primary: root.eq-open;
+                clicked => { root.eq-open-changed(!root.eq-open); }
+            }
+        }
+        if root.eq-open && !Theme.phone: EqPanel {
             enabled: root.eq-enabled;
             gains: root.eq-gains;
             preamp: root.eq-preamp;
@@ -940,6 +1035,34 @@ export component NowPlayingPage inherits Rectangle {
             reset => { root.eq-reset(); }
             close => { root.eq-open-changed(false); }
             curve-aspect(a) => { root.eq-curve-aspect(a); }
+        }
+        // Phone: the equalizer is wider than the screen; slide it sideways.
+        if root.eq-open && Theme.phone: Rectangle {
+            height: 236px;
+            clip: true;
+            eq-flick := Flickable {
+                width: parent.width;
+                height: parent.height;
+                content-width: 760px;
+                content-height: self.height;
+                EqPanel {
+                    x: 0px;
+                    y: 0px;
+                    width: 760px;
+                    enabled: root.eq-enabled;
+                    gains: root.eq-gains;
+                    preamp: root.eq-preamp;
+                    preset: root.eq-preset;
+                    curve: root.eq-curve;
+                    toggle(on) => { root.eq-toggle(on); }
+                    band-changed(i, v) => { root.eq-band-changed(i, v); }
+                    preamp-changed(v) => { root.eq-preamp-changed(v); }
+                    preset-selected(i) => { root.eq-preset-selected(i); }
+                    reset => { root.eq-reset(); }
+                    close => { root.eq-open-changed(false); }
+                    curve-aspect(a) => { root.eq-curve-aspect(a); }
+                }
+            }
         }
         if root.lyrics-open: LyricsPanel {
             vertical-stretch: 1;
@@ -959,10 +1082,10 @@ export component NowPlayingPage inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             Visualizer {
-                x: 28px;
-                y: 28px;
-                width: parent.width - 56px;
-                height: parent.height - 48px;
+                x: Theme.phone ? 14px : 28px;
+                y: Theme.phone ? 14px : 28px;
+                width: parent.width - (Theme.phone ? 28px : 56px);
+                height: parent.height - (Theme.phone ? 24px : 48px);
                 style: root.viz-style;
                 bars: root.bars;
                 peaks: root.peaks;
@@ -1006,12 +1129,14 @@ export component ServerPage inherits Rectangle {
 
     VerticalLayout {
         HorizontalLayout {
-            padding-left: 24px;
-            padding-right: 24px;
+            padding-left: Theme.phone ? 16px : 24px;
+            padding-right: Theme.phone ? 12px : 24px;
             padding-bottom: 8px;
             spacing: 10px;
             Text {
                 horizontal-stretch: 1;
+                min-width: 0px;
+                overflow: elide;
                 text: root.status;
                 color: Theme.fg-muted;
                 font-size: 13px;
@@ -1047,6 +1172,31 @@ export component ServerPage inherits Rectangle {
     }
 }
 
+/// One setting: its name with the choices next to it (on a phone: below it).
+component SettingRow inherits Rectangle {
+    in property <string> label;
+    height: Theme.phone ? 58px : 32px;
+    Text {
+        x: 0px;
+        y: 0px;
+        width: Theme.phone ? parent.width : 180px;
+        height: Theme.phone ? 20px : parent.height;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    HorizontalLayout {
+        x: Theme.phone ? 0px : 188px;
+        y: Theme.phone ? 26px : 0px;
+        width: parent.width - self.x;
+        height: 32px;
+        spacing: 8px;
+        alignment: start;
+        @children
+    }
+}
+
 component SettingsCard inherits Rectangle {
     in property <string> title;
     border-radius: 14px;
@@ -1054,7 +1204,7 @@ component SettingsCard inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border;
     VerticalLayout {
-        padding: 20px;
+        padding: Theme.phone ? 14px : 20px;
         spacing: 14px;
         Text {
             text: root.title;
@@ -1103,49 +1253,26 @@ export component SettingsPage inherits Rectangle {
         content-height: content.preferred-height;
         content := VerticalLayout {
             width: scroll.visible-width;
-            padding: 24px;
+            padding: Theme.phone ? 12px : 24px;
             padding-top: 4px;
-            spacing: 18px;
+            spacing: Theme.phone ? 12px : 18px;
             alignment: start;
 
             SettingsCard {
                 title: "Appearance";
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Theme";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                SettingRow {
+                    label: "Theme";
                     Chip { text: "System"; selected: Theme.mode == 0; clicked => { root.theme-selected(0); } }
                     Chip { text: "Light"; selected: Theme.mode == 1; clicked => { root.theme-selected(1); } }
                     Chip { text: "Dark"; selected: Theme.mode == 2; clicked => { root.theme-selected(2); } }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Song lists";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                if !Theme.phone: SettingRow {
+                    label: "Song lists";
                     Chip { text: "Comfy"; selected: !Theme.compact; clicked => { root.density-changed(false); } }
                     Chip { text: "Cozy"; selected: Theme.compact; clicked => { root.density-changed(true); } }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 16px;
-                    Text {
-                        width: 180px;
-                        text: "Window transparency";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                if !Theme.mobile: SettingRow {
+                    label: "Window transparency";
                     VerticalLayout {
                         alignment: center;
                         SeekBar {
@@ -1165,17 +1292,9 @@ export component SettingsPage inherits Rectangle {
                         font-weight: 600;
                         vertical-alignment: center;
                     }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                if root.glass-available: HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Frosted glass (beta)";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                if root.glass-available: SettingRow {
+                    label: "Frosted glass (beta)";
                     Chip { text: "On"; selected: root.glass; clicked => { root.glass-changed(true); } }
                     Chip { text: "Off"; selected: !root.glass; clicked => { root.glass-changed(false); } }
                     if root.glass-countdown > 0: Text {
@@ -1189,9 +1308,8 @@ export component SettingsPage inherits Rectangle {
                         selected: true;
                         clicked => { root.glass-keep(); }
                     }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                Text {
+                if !Theme.mobile: Text {
                     text: (root.glass-available ? "Frosted glass blurs what's behind the window, like macOS's own sidebars. " : "")
                         + "Transparency lets your desktop show through the window background. 0% is fully solid.";
                     color: Theme.fg-muted;
@@ -1202,60 +1320,28 @@ export component SettingsPage inherits Rectangle {
 
             SettingsCard {
                 title: "Playback";
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Crossfade";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                SettingRow {
+                    label: "Crossfade";
                     for secs in [0, 2, 4, 6, 8, 12]: Chip {
                         text: secs == 0 ? "Off" : secs + " s";
                         selected: root.crossfade == secs;
                         clicked => { root.crossfade-changed(secs); }
                     }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Within an album";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                SettingRow {
+                    label: "Within an album";
                     Chip { text: "Crossfade"; selected: !root.gapless-albums; clicked => { root.gapless-albums-changed(false); } }
                     Chip { text: "Keep gapless"; selected: root.gapless-albums; clicked => { root.gapless-albums-changed(true); } }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Find lyrics online";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                SettingRow {
+                    label: "Find lyrics online";
                     Chip { text: "On"; selected: root.lyrics-online; clicked => { root.lyrics-online-changed(true); } }
                     Chip { text: "Off"; selected: !root.lyrics-online; clicked => { root.lyrics-online-changed(false); } }
-                    Rectangle { horizontal-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        width: 180px;
-                        text: "Startup sound";
-                        color: Theme.fg-muted;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                    }
+                SettingRow {
+                    label: "Startup sound";
                     Chip { text: "On"; selected: root.startup-sound; clicked => { root.startup-sound-changed(true); } }
                     Chip { text: "Off"; selected: !root.startup-sound; clicked => { root.startup-sound-changed(false); } }
-                    Rectangle { horizontal-stretch: 1; }
                 }
                 Text {
                     text: "Crossfade blends the end of a song into the next one when one song follows another on its own (not when you skip). "
@@ -1270,7 +1356,8 @@ export component SettingsPage inherits Rectangle {
             SettingsCard {
                 title: "Music folders";
                 if root.folders.length == 0: Text {
-                    text: "No folders yet. Add the folders that contain your music.";
+                    text: Theme.mobile ? "Unitn looks for songs in this device's Music and Download folders." : "No folders yet. Add the folders that contain your music.";
+                    wrap: word-wrap;
                     color: Theme.fg-muted;
                     font-size: 13px;
                 }
@@ -1330,8 +1417,8 @@ export component SettingsPage inherits Rectangle {
                     alignment: start;
                     spacing: 10px;
                     PillButton {
-                        text: "Add folder";
-                        icon: @image-url("icons/plus.svg");
+                        text: Theme.mobile ? "Find my music" : "Add folder";
+                        icon: Theme.mobile ? @image-url("icons/search.svg") : @image-url("icons/plus.svg");
                         primary: true;
                         clicked => { root.add-folder(); }
                     }
@@ -1407,7 +1494,7 @@ export component SettingsPage inherits Rectangle {
                 }
             }
 
-            SettingsCard {
+            if !Theme.mobile: SettingsCard {
                 title: "Keyboard shortcuts";
                 for row in [
                     { keys: "Space", action: "Play / pause" },
@@ -1468,20 +1555,20 @@ export component PlaylistPage inherits Rectangle {
     callback density-changed(bool);
 
     VerticalLayout {
-        padding: 24px;
+        padding: Theme.phone ? 12px : 24px;
         padding-top: 8px;
-        spacing: 20px;
+        spacing: Theme.phone ? 12px : 20px;
         HorizontalLayout {
-            spacing: 24px;
+            spacing: Theme.phone ? 14px : 24px;
             Rectangle {
-                width: 200px;
-                height: 200px;
+                width: Theme.phone ? 96px : 200px;
+                height: self.width;
                 border-radius: 12px;
                 background: @linear-gradient(135deg, Theme.accent 0%, #d061ff 100%);
                 Image {
                     source: @image-url("icons/playlist.svg");
-                    width: 72px;
-                    height: 72px;
+                    width: parent.width * 0.36;
+                    height: self.width;
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     colorize: #ffffff;
@@ -1504,7 +1591,7 @@ export component PlaylistPage inherits Rectangle {
                         height: parent.height;
                         text: root.name;
                         color: Theme.fg;
-                        font-size: 30px;
+                        font-size: Theme.phone ? 20px : 30px;
                         font-weight: 800;
                         overflow: elide;
                         vertical-alignment: center;
@@ -1515,7 +1602,7 @@ export component PlaylistPage inherits Rectangle {
                     }
                 }
                 if root.editing: TextField {
-                    width: 360px;
+                    width: Theme.phone ? 200px : 360px;
                     init => {
                         self.text = root.name;
                         self.focus-input();
@@ -1526,12 +1613,14 @@ export component PlaylistPage inherits Rectangle {
                     }
                 }
                 Text {
-                    text: root.editing ? "Press Enter to save the new name" : root.info + "  ·  click the name to rename";
+                    min-width: 0px;
+                    text: root.editing ? "Press Enter to save the new name" : Theme.phone ? root.info + "  ·  tap the name to rename" : root.info + "  ·  click the name to rename";
                     color: Theme.fg-muted;
                     font-size: 13px;
+                    wrap: word-wrap;
                 }
-                Rectangle { height: 8px; }
-                HorizontalLayout {
+                if !Theme.phone: Rectangle { height: 8px; }
+                if !Theme.phone: HorizontalLayout {
                     alignment: start;
                     spacing: 10px;
                     PillButton {
@@ -1562,6 +1651,31 @@ export component PlaylistPage inherits Rectangle {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     DensitySwitch { changed(c) => { root.density-changed(c); } }
+                }
+            }
+        }
+        if Theme.phone: HorizontalLayout {
+            alignment: start;
+            spacing: 10px;
+            PillButton {
+                text: "Play";
+                icon: @image-url("icons/play.svg");
+                primary: true;
+                clicked => { root.play(false); }
+            }
+            PillButton {
+                text: "Shuffle";
+                icon: @image-url("icons/shuffle.svg");
+                clicked => { root.play(true); }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: @image-url("icons/trash.svg");
+                    size: 40px;
+                    icon-size: 18px;
+                    tint: Theme.danger;
+                    clicked => { root.delete(); }
                 }
             }
         }
@@ -1672,8 +1786,8 @@ export component PodcastsPage inherits Rectangle {
     callback play-episode(int);
 
     if root.view == 0: VerticalLayout {
-        padding-left: 24px;
-        padding-right: 24px;
+        padding-left: Theme.phone ? 8px : 24px;
+        padding-right: Theme.phone ? 8px : 24px;
         spacing: 10px;
         if root.status != "": Text {
             text: root.status;
@@ -1719,11 +1833,11 @@ export component PodcastsPage inherits Rectangle {
     }
 
     if root.view == 1: VerticalLayout {
-        padding-left: 24px;
-        padding-right: 24px;
-        spacing: 14px;
+        padding-left: Theme.phone ? 12px : 24px;
+        padding-right: Theme.phone ? 12px : 24px;
+        spacing: Theme.phone ? 10px : 14px;
         HorizontalLayout {
-            spacing: 18px;
+            spacing: Theme.phone ? 10px : 18px;
             VerticalLayout {
                 alignment: start;
                 IconButton {
@@ -1735,7 +1849,7 @@ export component PodcastsPage inherits Rectangle {
                 }
             }
             Artwork {
-                size: 112px;
+                size: Theme.phone ? 84px : 112px;
                 source: root.show-image;
                 has-image: root.show-has-image;
                 placeholder: @image-url("icons/podcast.svg");
@@ -1745,13 +1859,15 @@ export component PodcastsPage inherits Rectangle {
                 horizontal-stretch: 1;
                 spacing: 4px;
                 Text {
+                    min-width: 0px;
                     text: root.show-title;
                     color: Theme.fg;
-                    font-size: 22px;
+                    font-size: Theme.phone ? 18px : 22px;
                     font-weight: 800;
                     overflow: elide;
                 }
                 Text {
+                    min-width: 0px;
                     text: root.show-author;
                     color: Theme.fg-muted;
                     font-size: 13px;
@@ -1765,7 +1881,7 @@ export component PodcastsPage inherits Rectangle {
                     overflow: elide;
                     max-height: 34px;
                 }
-                HorizontalLayout {
+                if !Theme.phone: HorizontalLayout {
                     spacing: 8px;
                     alignment: start;
                     padding-top: 4px;
@@ -1780,6 +1896,20 @@ export component PodcastsPage inherits Rectangle {
                         clicked => { root.unsubscribe(); }
                     }
                 }
+            }
+        }
+        if Theme.phone: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            PillButton {
+                text: root.loading ? "Refreshing…" : "Refresh";
+                icon: @image-url("icons/refresh.svg");
+                clicked => { root.refresh(); }
+            }
+            PillButton {
+                text: "Unsubscribe";
+                icon: @image-url("icons/trash.svg");
+                clicked => { root.unsubscribe(); }
             }
         }
         if root.status != "": Text {

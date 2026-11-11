@@ -485,6 +485,7 @@ impl App {
             ui.set_startup_sound(self.settings.startup_sound);
             ui.set_lyrics_open(self.settings.lyrics_open);
             ui.set_glass_available(crate::glass::AVAILABLE);
+            ui.global::<Theme>().set_mobile(cfg!(target_os = "android"));
             ui.set_glass(self.settings.glass && crate::glass::AVAILABLE);
             ui.global::<Theme>().set_glass(self.settings.glass && crate::glass::AVAILABLE);
             ui.global::<Theme>().set_compact(self.settings.compact_lists);
@@ -497,14 +498,7 @@ impl App {
         self.apply_eq();
         self.favorites = self.library.favorite_uuids().unwrap_or_default();
 
-        // First run: use the OS music folder.
-        if self.library.folders().map(|f| f.is_empty()).unwrap_or(false) {
-            if let Some(music) = crate::settings::default_music_folder() {
-                if music.is_dir() {
-                    let _ = self.library.add_folder(&music);
-                }
-            }
-        }
+        self.add_default_folders();
 
         self.reload_library();
         self.refresh_folders();
@@ -515,6 +509,29 @@ impl App {
         self.load_radio_tab(RADIO_TAB_POPULAR);
         self.refresh_now_playing();
         self.refresh_position();
+        self.start_scan();
+    }
+
+    /// First run: start with the OS music folder(s).
+    fn add_default_folders(&mut self) {
+        if self.library.folders().map(|f| f.is_empty()).unwrap_or(false) {
+            for music in crate::settings::default_music_folders() {
+                if music.is_dir() {
+                    let _ = self.library.add_folder(&music);
+                }
+            }
+        }
+    }
+
+    /// Android has no folder picker: ask for access to the music files
+    /// (if still missing) and scan the Music and Download folders.
+    #[cfg(target_os = "android")]
+    pub fn find_music(&mut self) {
+        if let Some(platform) = crate::android::platform() {
+            platform.request_permissions();
+        }
+        self.add_default_folders();
+        self.refresh_folders();
         self.start_scan();
     }
 
@@ -574,6 +591,16 @@ impl App {
         let keys: Vec<MediaCmd> = self.media_rx.try_iter().collect();
         for k in keys {
             self.on_media_key(k);
+        }
+        // Android: the user just allowed (or refused) access to the music.
+        #[cfg(target_os = "android")]
+        {
+            if crate::android::take_permissions_changed() {
+                log("android: permissions answered, scanning again");
+                self.add_default_folders();
+                self.refresh_folders();
+                self.start_scan();
+            }
         }
     }
 
@@ -2781,6 +2808,11 @@ impl App {
             ui.set_duration_text(dur.into());
             ui.set_seekable(seekable);
         }
+        // Android: keeps the progress on the lock screen right after a seek.
+        #[cfg(target_os = "android")]
+        {
+            self.media.set_position(self.position);
+        }
     }
 
     fn refresh_now_playing(&mut self) {
@@ -3433,8 +3465,15 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     {
         let app = app.clone();
         ui.on_add_folder(move || {
-            if let Some(folder) = crate::dialogs::pick_music_folder() {
-                with(&app, |a| a.add_folder(folder));
+            #[cfg(target_os = "android")]
+            {
+                with(&app, |a| a.find_music());
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                if let Some(folder) = crate::dialogs::pick_music_folder() {
+                    with(&app, |a| a.add_folder(folder));
+                }
             }
         });
     }
@@ -3472,7 +3511,14 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     }
 }
 
+/// Opens a web page in the browser. Returns false if that failed.
+#[cfg(target_os = "android")]
+fn open_in_browser(url: &str) -> bool {
+    crate::android::platform().is_some_and(|p| p.open_url(url))
+}
+
 /// Opens a web page in the default browser. Returns false if that failed.
+#[cfg(not(target_os = "android"))]
 fn open_in_browser(url: &str) -> bool {
     use std::process::{Command, Stdio};
     let mut cmd = if cfg!(target_os = "windows") {

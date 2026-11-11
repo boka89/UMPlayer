@@ -18,6 +18,9 @@ unitn = { path = "../unitn" }
 # Turns on Slint's Android backend for the whole build (features are shared
 # with the `unitn` crate).
 slint = { version = "1.8", features = ["backend-android-activity-06"] }
+# Calls into the Java side (java/net/bokors/unitn).
+jni = "0.21"
+ndk-context = "0.1"
 
 [profile.release]
 strip = true

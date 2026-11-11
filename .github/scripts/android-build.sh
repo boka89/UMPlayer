@@ -3,13 +3,15 @@
 #
 # Needs: the Android SDK (ANDROID_HOME) with build-tools, a platform and the
 # NDK; a JDK (javac, keytool); Rust with the Android targets; cargo-ndk.
+# No Gradle: the few Java classes are compiled with javac and d8 directly.
 #   rustup target add aarch64-linux-android x86_64-linux-android
 #   cargo install cargo-ndk
 #
 # ABIS="x86_64" builds for one architecture only (default: phones + emulator).
-# UNITN_ANDROID_KEYSTORE / UNITN_ANDROID_KEYSTORE_PASSWORD sign with your own
-# key; otherwise a throw-away test key is made. (Android only installs an
-# update over an app signed with the same key.)
+# UNITN_ANDROID_KEYSTORE (a .p12 or .jks file) and
+# UNITN_ANDROID_KEYSTORE_PASSWORD sign with the permanent key; without them a
+# throw-away test key is made. (Android only installs an update over an app
+# signed with the same key, so releases must always use the permanent one.)
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -39,7 +41,16 @@ IFS=. read -r major minor patch <<<"$VERSION"
 VERSION_CODE=$((major * 10000 + minor * 100 + patch))
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/lib" "$STAGE/res/mipmap-xxxhdpi"
+mkdir -p "$STAGE/lib" "$STAGE/res/mipmap-xxxhdpi" "$STAGE/classes" "$STAGE/dex"
+
+# --- Java (activity + playback service) -------------------------------------
+# First, because it takes seconds and the Rust build takes minutes.
+javac -source 8 -target 8 -Xlint:-options -nowarn \
+  -bootclasspath "$PLATFORM/android.jar" -d "$STAGE/classes" \
+  $(find crates/unitn-android/java -name '*.java')
+"$BUILD_TOOLS/d8" --release --min-api "$MIN_SDK" --lib "$PLATFORM/android.jar" \
+  --output "$STAGE/dex" $(find "$STAGE/classes" -name '*.class')
+ls -la "$STAGE/dex"
 
 # --- native library ---------------------------------------------------------
 # Start from the desktop lock file, so both builds use the same crate versions;
@@ -68,6 +79,7 @@ cp crates/unitn/icons/256x256.png "$STAGE/res/mipmap-xxxhdpi/ic_launcher.png"
   --version-code "$VERSION_CODE" --version-name "$VERSION" \
   "$STAGE/res.zip"
 (cd "$STAGE" && zip -q -r unsigned.apk lib)
+(cd "$STAGE/dex" && zip -q ../unsigned.apk classes.dex)
 "$BUILD_TOOLS/zipalign" -f -p 4 "$STAGE/unsigned.apk" "$STAGE/aligned.apk"
 
 # --- sign -------------------------------------------------------------------
@@ -77,11 +89,13 @@ if [ -z "$KEYSTORE" ]; then
   KEYSTORE="$STAGE/test.keystore"
   keytool -genkeypair -keystore "$KEYSTORE" -storepass "$PASSWORD" -keypass "$PASSWORD" \
     -alias unitn -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Unitn test build" 2>/dev/null
-  echo "Signed with a throw-away test key."
+  echo "RESULT android signing: throw-away test key"
+else
+  echo "RESULT android signing: permanent key"
 fi
 APK="$OUT/Unitn_${VERSION}_android.apk"
 "$BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-pass "pass:$PASSWORD" --out "$APK" "$STAGE/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify "$APK"
+"$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -i "SHA-256" | sed 's/^/RESULT android /'
 rm -f "$APK.idsig"
 ls -la "$APK"
 echo "RESULT android apk: OK ($(du -h "$APK" | cut -f1))"

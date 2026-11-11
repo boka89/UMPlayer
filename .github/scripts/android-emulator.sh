@@ -1,73 +1,142 @@
 #!/usr/bin/env bash
-# Runs inside a booted Android emulator (CI): installs the APK, starts the
-# app with a radio stream, and saves screenshots and the app's log to
+# Runs inside a booted Android emulator (CI): installs the APK and checks
+#   - local songs: found in the Music folder and played,
+#   - background playback: the music goes on (and moves to the next song)
+#     after Home is pressed, with the notification and media buttons working,
+#   - internet radio, and the hand-over to the browser (Plex sign-in),
+# and saves phone- and tablet-sized screenshots plus the app's log to
 # android-screenshots/. Read the "RESULT …" lines.
 set -uo pipefail
 
 APK=$(ls dist/android/Unitn_*_android.apk | head -1)
 OUT="$PWD/android-screenshots"
-STREAM=${1:-https://oxygenmusic.hu:8443/oxygenmusic}
-ACTIVITY=net.bokors.unitn/android.app.NativeActivity
+SONGS=${SONGS:-test-songs}
+STREAM=${STREAM:-https://oxygenmusic.hu:8443/oxygenmusic}
+APP=net.bokors.unitn
+ACTIVITY=$APP/.MainActivity
 mkdir -p "$OUT"
+FAILED=0
 
 shot() { adb exec-out screencap -p > "$OUT/$1.png" && echo "screenshot: $1.png"; }
 applog() { adb logcat -d -s unitn:V 2>/dev/null; }
-result() { # name pattern
-  if applog | grep -q "$2"; then echo "RESULT android $1: OK"; else echo "RESULT android $1: FAILED"; FAILED=1; fi
+count() { applog | grep -c "$1"; }
+ok() { echo "RESULT android $1: OK"; }
+fail() { echo "RESULT android $1: FAILED"; FAILED=1; }
+check() { if "${@:2}" >/dev/null 2>&1; then ok "$1"; else fail "$1"; fi; }
+logged() { applog | grep -q "$1"; }
+wait_for() { # pattern, at least N times, timeout seconds
+  for _ in $(seq 1 "$3"); do
+    [ "$(count "$1")" -ge "$2" ] && return 0
+    sleep 1
+  done
+  return 1
 }
-FAILED=0
+tap() { adb shell input tap "$1" "$2"; sleep "${3:-2}"; }
+start_app() { adb shell am start -W -n "$ACTIVITY" >/dev/null; }
+props() { # autoplay, no_intro, open_url ('""' clears a property)
+  adb shell setprop debug.unitn.autoplay "${1:-\"\"}"
+  adb shell setprop debug.unitn.no_intro "${2:-\"\"}"
+  adb shell setprop debug.unitn.open_url "${3:-\"\"}"
+}
 
-adb shell wm size | tee "$OUT/device.txt"
-adb shell wm density | tee -a "$OUT/device.txt"
-adb shell getprop ro.build.version.release | tee -a "$OUT/device.txt"
+adb shell getprop ro.build.version.release | tee "$OUT/device.txt"
 
-adb install -r "$APK" || { echo "RESULT android install: FAILED"; exit 1; }
-echo "RESULT android install: OK"
+# ---------------------------------------------------------------- phone size
+adb shell wm size 1080x2400
+adb shell wm density 420
+sleep 4
 
-# Test hooks (see crates/unitn/src/android.rs).
-adb shell setprop debug.unitn.no_intro 1
-adb shell setprop debug.unitn.autoplay "$STREAM"
+# Test songs into the shared Music folder, and tell Android about them.
+adb shell mkdir -p /sdcard/Music/TT/ES
+for f in "$SONGS"/*.wav; do adb push "$f" /sdcard/Music/TT/ES/ >/dev/null; done
+adb shell content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1
+sleep 3
+
+adb install -r "$APK" || { fail install; exit 1; }
+ok install
+# As if the user had answered "Allow" to the two questions.
+adb shell pm grant $APP android.permission.READ_MEDIA_AUDIO
+adb shell pm grant $APP android.permission.POST_NOTIFICATIONS
+
+# --- 1. local songs, then into the background -------------------------------
+props "/sdcard/Music/TT/ES/1.wav,/sdcard/Music/TT/ES/2.wav,/sdcard/Music/TT/ES/3.wav" 1
 adb logcat -c
-adb shell am start -W -n "$ACTIVITY"
+start_app
+wait_for "ui: event Position" 4 60
+shot phone-albums
+check "startup" logged "startup: ready"
+check "local song plays" logged "ui: event Position"
+tap 300 2100 3          # the small player -> Now Playing
+shot phone-nowplaying
+tap 540 600 1           # wake the visualizer buttons
+tap 270 2260 3          # Albums tab
+tap 270 560 3           # first album
+shot phone-album
 
-# Wait for the app to start and the stream to play for a few seconds.
-for _ in $(seq 1 45); do
-  sleep 2
-  if [ "$(applog | grep -c 'ui: event Position')" -ge 5 ]; then break; fi
-done
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+before=$(count "ui: event Position")
+# The first song is 24 s long: wait for the second one, in the background.
+wait_for "gapless switch\|crossfade over\|ui: event Advanced" 1 60
+sleep 6
+after=$(count "ui: event Position")
+if [ "$after" -gt "$((before + 4))" ]; then ok "plays on in the background"; else fail "plays on in the background ($before -> $after)"; fi
+check "next song starts in the background" logged "gapless switch\|crossfade over\|ui: event Advanced"
+if adb shell dumpsys activity services $APP | grep -q "isForeground=true"; then ok "foreground service"; else fail "foreground service"; fi
+adb shell dumpsys media_session > "$OUT/media-session.txt" 2>&1
+if grep -A40 "$APP" "$OUT/media-session.txt" | grep -q "state=PlaybackState {state=\(3\|PLAYING\)"; then ok "media session playing"; else fail "media session playing"; fi
+adb shell dumpsys notification --noredact 2>/dev/null | grep -A30 "pkg=$APP" | head -60 > "$OUT/notification.txt"
+if grep -q "Second Wind\|First Light\|Third Coast" "$OUT/notification.txt"; then ok "notification shows the song"; else fail "notification shows the song"; fi
+adb shell cmd statusbar expand-notifications; sleep 3
+shot phone-notification
+adb shell cmd statusbar collapse; sleep 1
+
+# Headset / Bluetooth buttons.
+adb shell input keyevent KEYCODE_MEDIA_PAUSE
+if wait_for "ui: event State(Paused)" 1 10; then ok "media button pauses"; else fail "media button pauses"; fi
+adb shell input keyevent KEYCODE_MEDIA_PLAY
+if wait_for "ui: event State(Playing)" 2 10; then ok "media button resumes"; else fail "media button resumes"; fi
+adb shell input keyevent KEYCODE_MEDIA_NEXT
+sleep 3
+
+# --- 2. back in the app: the other pages ------------------------------------
+start_app; sleep 3
+tap 486 2260 3; shot phone-songs       # Songs tab
+tap 702 2260 8; shot phone-radio       # Radio tab
+tap 918 2260 5; shot phone-podcasts    # Podcasts tab
+tap 1026 2260 3; shot phone-more       # More
+check "still running" adb shell pidof $APP
+
+# --- 3. internet radio + the browser hand-over ------------------------------
+adb shell am force-stop $APP
+props "$STREAM" 1
+start_app
+if wait_for "ui: event StreamTitle\|ui: event Position" 6 60; then ok "radio plays"; else fail "radio plays"; fi
+tap 300 2100 4
+shot phone-radio-playing
+
+adb shell am force-stop $APP
+props "" 1 "https://app.plex.tv/auth#?test=unitn"
+adb logcat -c
+start_app; sleep 6
+if logged "open_url test: true"; then ok "opens the browser (Plex sign-in)"; else fail "opens the browser (Plex sign-in)"; fi
+adb logcat -d 2>/dev/null | grep -m3 "android.intent.action.VIEW" | cut -c1-220
+applog > "$OUT/logcat-unitn-browser.txt"
+adb shell am force-stop $APP
+
+# --------------------------------------------------------------- tablet size
+adb shell wm size reset; adb shell wm density reset; sleep 4
+props "$STREAM" 1
+start_app
+wait_for "ui: event Position" 4 60
 shot tablet-playing
+adb shell am force-stop $APP
+props
 
-result "startup" "startup: ready"
-result "audio output" "audio: output device"
-result "radio playback" "ui: event Position"
-if adb shell pidof net.bokors.unitn >/dev/null; then echo "RESULT android still running: OK"; else echo "RESULT android still running: FAILED"; FAILED=1; fi
-
-# Touch: open Radio and Now Playing from the sidebar (positions in screen
-# pixels on the 2560x1800 tablet). Only pictures, never a failure.
-adb shell input tap 155 615 && sleep 8 && shot tablet-radio
-adb shell input tap 196 865 && sleep 4 && shot tablet-nowplaying
-
-# The desktop layout on a phone-sized screen (expected to be cramped: there
-# is no phone layout yet). Only a picture, never a failure.
-adb shell wm size 1080x2400 && adb shell wm density 420 && sleep 6 && shot phone-portrait
-adb shell wm size reset; adb shell wm density reset; sleep 3
-
-# The start-up animation.
-adb shell am force-stop net.bokors.unitn
-adb shell setprop debug.unitn.no_intro '""'
-adb shell setprop debug.unitn.autoplay '""'
-adb shell am start -W -n "$ACTIVITY"
-sleep 2
-shot tablet-intro
-sleep 10
-shot tablet-idle
-
-applog > "$OUT/logcat-unitn.txt"
-adb logcat -d '*:E' 2>/dev/null | grep -i -E "unitn|FATAL|DEBUG|libc|AndroidRuntime" | tail -200 > "$OUT/logcat-errors.txt"
-echo "--- app log (first 80 lines) ---"
-head -80 "$OUT/logcat-unitn.txt"
+adb logcat -d -s unitn:V > "$OUT/logcat-unitn.txt" 2>/dev/null
+adb logcat -d '*:E' 2>/dev/null | grep -i -E "unitn|FATAL|AndroidRuntime|libc  " | tail -200 > "$OUT/logcat-errors.txt"
 if [ "$FAILED" = 1 ]; then
-  echo "--- errors ---"
-  tail -60 "$OUT/logcat-errors.txt"
+  echo "--- app log (last 80 lines) ---"; tail -80 "$OUT/logcat-unitn.txt"
+  echo "--- errors ---"; tail -60 "$OUT/logcat-errors.txt"
 fi
 exit "$FAILED"

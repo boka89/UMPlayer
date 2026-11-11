@@ -42,7 +42,17 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Build APK
-        run: .github/scripts/android-build.sh
+        env:
+          # The permanent signing key (repository secrets). Without them the
+          # build still works, signed with a throw-away test key.
+          KEYSTORE_B64: ${{ secrets.UNITN_ANDROID_KEYSTORE_B64 }}
+          UNITN_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.UNITN_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/unitn-release.p12"
+            export UNITN_ANDROID_KEYSTORE="$RUNNER_TEMP/unitn-release.p12"
+          fi
+          .github/scripts/android-build.sh
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
@@ -59,7 +69,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run in the emulator (tablet, Android 14)
+      - name: Make test songs
+        run: python3 .github/scripts/android-test-songs.py test-songs
+
+      - name: Run in the emulator (Android 14, phone and tablet size)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34

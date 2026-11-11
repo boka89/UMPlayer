@@ -60,6 +60,28 @@ export component AppWindow inherits Window {
     /// Space for the macOS window buttons (the title bar is drawn by us there).
     in property <length> titlebar-inset: 0px;
 
+    /// Phone-sized window: the sidebar becomes the "More" page (page 11),
+    /// tabs sit at the bottom and the player bar is compact.
+    property <bool> phone: root.width < 720px || root.height < 520px;
+    changed phone => {
+        Theme.phone = root.phone;
+        if (!root.phone && root.page == 11) { root.page = 0; }
+    }
+    changed page => {
+        if (root.page != 0 && root.page != 1 && root.page != 2 && root.page != 3 && root.page != 9 && root.page != 10) {
+            root.search-open = false;
+        }
+    }
+    /// Phone: the search box is shown instead of the page title.
+    property <bool> search-open: false;
+    /// Phone: which bottom tab is lit (-1: none).
+    property <int> active-tab: (root.page == 0 || (root.page == 5 && !root.album-from-server)) ? 0
+        : root.page == 2 ? 1
+        : root.page == 3 ? 2
+        : root.page == 10 ? 3
+        : root.page == 6 ? -1
+        : 4;
+
     // Pages: 0 albums, 1 artists, 2 songs, 3 radio, 4 queue, 5 album detail, 6 now playing, 7 settings, 8 playlist
     in-out property <int> page: 0;
 
@@ -309,6 +331,7 @@ export component AppWindow inherits Window {
 
     init => {
         Theme.system-dark = Palette.color-scheme != ColorScheme.light;
+        Theme.phone = root.phone;
     }
 
     // Keyboard shortcuts (keys typed into text fields are handled there first).
@@ -322,6 +345,15 @@ export component AppWindow inherits Window {
         init => { self.focus(); }
         key-pressed(event) => {
             if (root.intro-visible) { root.intro-skip(); return accept; }
+            // Android's Back button: one step back inside the app first.
+            if (event.text == Key.Back) {
+                if (root.search-open) { root.search-open = false; return accept; }
+                if (root.page == 5) { root.page = root.album-from-server ? 9 : 0; return accept; }
+                if (root.page == 10 && root.podcast-view == 1) { root.podcast-back(); return accept; }
+                if (root.page == 0 && root.albums-filtered) { root.show-all-albums(); return accept; }
+                if (root.page != 0) { root.page = (root.phone && root.page != 11 && root.active-tab == 4) ? 11 : 0; return accept; }
+                return reject;
+            }
             if (event.modifiers.control || event.modifiers.meta) {
                 if (event.text == Key.RightArrow) { root.next(); return accept; }
                 if (event.text == Key.LeftArrow) { root.previous(); return accept; }
@@ -351,20 +383,23 @@ export component AppWindow inherits Window {
         VerticalLayout {
             // Sidebar and pages. They may be cut off (never pushed out of the
             // window), so the now playing bar always stays visible.
-            Rectangle {
+            content-area := Rectangle {
             vertical-stretch: 1;
             min-height: 0px;
             clip: true;
             HorizontalLayout {
 
                 // ---------------- Sidebar ----------------
+                // On a phone it is the "More" page and fills the screen.
                 Rectangle {
-                    width: 232px;
+                    width: root.phone ? (root.page == 11 ? content-area.width : 0px) : 232px;
+                    visible: !root.phone || root.page == 11;
+                    clip: true;
                     background: Theme.sidebar.transparentize(Theme.see-through);
                     VerticalLayout {
                         padding: 16px;
                         padding-top: 20px + root.titlebar-inset;
-                        spacing: 4px;
+                        spacing: root.phone ? 2px : 4px;
                         HorizontalLayout {
                             padding-left: 6px;
                             padding-bottom: 18px;
@@ -506,8 +541,8 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             PillButton {
                                 horizontal-stretch: 1;
-                                text: "Add folder";
-                                icon: @image-url("icons/plus.svg");
+                                text: Theme.mobile ? "Find my music" : "Add folder";
+                                icon: Theme.mobile ? @image-url("icons/search.svg") : @image-url("icons/plus.svg");
                                 clicked => { root.add-folder(); }
                             }
                             IconButton {
@@ -545,17 +580,17 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                Rectangle { width: 1px; background: Theme.border; }
+                Rectangle { width: root.phone ? 0px : 1px; background: Theme.border; }
 
                 // ---------------- Main area ----------------
                 VerticalLayout {
                     horizontal-stretch: 1;
                     HorizontalLayout {
-                        height: 68px + root.titlebar-inset;
+                        height: (root.phone ? 56px : 68px) + root.titlebar-inset;
                         padding-top: root.titlebar-inset;
-                        padding-left: 24px;
-                        padding-right: 24px;
-                        spacing: 12px;
+                        padding-left: root.phone ? 16px : 24px;
+                        padding-right: root.phone ? 12px : 24px;
+                        spacing: root.phone ? 6px : 12px;
                         if root.page == 5 || (root.page == 0 && root.albums-filtered): VerticalLayout {
                             alignment: center;
                             IconButton {
@@ -571,8 +606,9 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        Text {
+                        if !(root.phone && root.search-open): Text {
                             horizontal-stretch: 1;
+                            min-width: 0px;
                             text: root.page == 0 ? root.albums-title
                                 : root.page == 1 ? "Artists"
                                 : root.page == 2 ? "Songs"
@@ -585,15 +621,29 @@ export component AppWindow inherits Window {
                                 : root.page == 10 ? (root.podcast-view == 1 ? "Podcast" : "Podcasts")
                                 : "";
                             color: Theme.fg;
-                            font-size: 24px;
+                            font-size: root.phone ? 21px : 24px;
                             font-weight: 800;
                             vertical-alignment: center;
                             overflow: elide;
                         }
+                        // Phone: a search button that swaps the title for the search box.
+                        if root.phone && !root.search-open && root.page != 6 && root.page != 7 && root.page != 4 && root.page != 8 && root.page != 5: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/search.svg");
+                                size: 40px;
+                                icon-size: 20px;
+                                clicked => {
+                                    root.search-open = true;
+                                    search.focus-input();
+                                }
+                            }
+                        }
                         VerticalLayout {
                             alignment: center;
                             search := SearchBox {
-                                width: 280px;
+                                width: !root.phone ? 280px : root.search-open ? content-area.width - 76px : 0px;
+                                visible: !root.phone || root.search-open;
                                 placeholder: root.page == 3 ? "Search radio stations"
                                     : root.page == 10 ? "Search podcasts or paste an RSS link"
                                     : "Search songs, artists, albums";
@@ -608,6 +658,18 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 escaped => { keys.focus(); }
+                            }
+                        }
+                        if root.phone && root.search-open: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/close.svg");
+                                size: 40px;
+                                icon-size: 18px;
+                                clicked => {
+                                    root.search-open = false;
+                                    keys.focus();
+                                }
                             }
                         }
                     }
@@ -830,7 +892,223 @@ export component AppWindow inherits Window {
 
             // ---------------- Now playing bar ----------------
             Rectangle { height: 1px; background: Theme.border; }
-            Rectangle {
+
+            // Phone, on the Now Playing page: the full transport.
+            if root.phone && root.page == 6: Rectangle {
+                height: 128px;
+                background: Theme.bar;
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            width: 44px;
+                            text: root.position-text;
+                            color: Theme.fg-muted;
+                            font-size: 12px;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                        SeekBar {
+                            horizontal-stretch: 1;
+                            value: root.position;
+                            enabled: root.seekable;
+                            changed(v) => { root.seek(v); }
+                        }
+                        Text {
+                            width: 44px;
+                            text: root.duration-text;
+                            color: root.is-radio ? Theme.accent : Theme.fg-muted;
+                            font-size: 12px;
+                            font-weight: root.is-radio ? 700 : 400;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: space-around;
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/shuffle.svg");
+                                size: 44px;
+                                icon-size: 20px;
+                                active: root.shuffle;
+                                tint: Theme.fg-muted;
+                                clicked => { root.toggle-shuffle(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/previous.svg");
+                                size: 52px;
+                                icon-size: 26px;
+                                enabled: root.has-track;
+                                clicked => { root.previous(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                                primary: true;
+                                size: 60px;
+                                icon-size: 28px;
+                                clicked => { root.toggle-play(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/next.svg");
+                                size: 52px;
+                                icon-size: 26px;
+                                enabled: root.has-track;
+                                clicked => { root.next(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: root.repeat-mode == 2 ? @image-url("icons/repeat-one.svg") : @image-url("icons/repeat.svg");
+                                size: 44px;
+                                icon-size: 20px;
+                                active: root.repeat-mode > 0;
+                                tint: Theme.fg-muted;
+                                clicked => { root.cycle-repeat(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Phone, on every other page: a small player; tap it for Now Playing.
+            if root.phone && root.page != 6: Rectangle {
+                height: 64px;
+                background: Theme.bar;
+                TouchArea {
+                    clicked => { root.page = 6; }
+                }
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width * Math.max(0, Math.min(1, root.position));
+                    height: 2px;
+                    background: Theme.accent;
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 6px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Artwork {
+                            size: 44px;
+                            source: root.np-cover;
+                            has-image: root.np-has-cover;
+                            placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 2px;
+                        Text {
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            text: root.np-title;
+                            color: Theme.fg;
+                            font-size: 14px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                        Text {
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            text: root.buffering ? "Buffering…" : root.np-subtitle;
+                            color: Theme.fg-muted;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                            primary: true;
+                            size: 44px;
+                            icon-size: 22px;
+                            clicked => { root.toggle-play(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: @image-url("icons/next.svg");
+                            size: 44px;
+                            icon-size: 22px;
+                            enabled: root.has-track;
+                            clicked => { root.next(); }
+                        }
+                    }
+                }
+            }
+
+            // Phone: tabs.
+            if root.phone: Rectangle {
+                height: 58px;
+                background: Theme.sidebar;
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: 1px;
+                    background: Theme.border;
+                }
+                HorizontalLayout {
+                    for tab[i] in [
+                        { icon: @image-url("icons/album.svg"), label: "Albums", page: 0 },
+                        { icon: @image-url("icons/song.svg"), label: "Songs", page: 2 },
+                        { icon: @image-url("icons/radio.svg"), label: "Radio", page: 3 },
+                        { icon: @image-url("icons/podcast.svg"), label: "Podcasts", page: 10 },
+                        { icon: @image-url("icons/more.svg"), label: "More", page: 11 },
+                    ]: Rectangle {
+                        horizontal-stretch: 1;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 3px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Image {
+                                    source: tab.icon;
+                                    width: 22px;
+                                    height: 22px;
+                                    colorize: root.active-tab == i ? Theme.accent : Theme.fg-muted;
+                                }
+                            }
+                            Text {
+                                text: tab.label;
+                                color: root.active-tab == i ? Theme.accent : Theme.fg-muted;
+                                font-size: 11px;
+                                font-weight: root.active-tab == i ? 700 : 400;
+                                horizontal-alignment: center;
+                            }
+                        }
+                        TouchArea {
+                            clicked => {
+                                if (tab.page == 0 && root.albums-filtered) { root.show-all-albums(); }
+                                root.page = tab.page;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !root.phone: Rectangle {
                 height: 88px;
                 background: Theme.bar.transparentize(Theme.see-through);
                 HorizontalLayout {
@@ -1070,9 +1348,9 @@ export component AppWindow inherits Window {
 
     // ---------------- "Add stream URL" dialog ----------------
     add-stream-popup := PopupWindow {
-        x: (root.width - 440px) / 2;
-        y: (root.height - 250px) / 2;
-        width: 440px;
+        x: (root.width - self.width) / 2;
+        y: root.phone ? root.safe-area-insets.top + 24px : (root.height - 250px) / 2;
+        width: Math.min(440px, root.width - 24px);
         height: 250px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         Rectangle {
@@ -1136,8 +1414,10 @@ export component AppWindow inherits Window {
             }
         }
         Rectangle {
-            width: Math.min(480px, root.width - 48px);
+            width: Math.min(480px, root.width - (root.phone ? 24px : 48px));
             height: server-box.preferred-height;
+            // Phone: near the top, so the on-screen keyboard doesn't cover it.
+            y: root.phone ? root.safe-area-insets.top + 24px : (parent.height - self.height) / 2;
             border-radius: 16px;
             background: Theme.surface;
             border-width: 1px;
@@ -1159,7 +1439,7 @@ export component AppWindow inherits Window {
                     alignment: start;
                     Chip { text: "Jellyfin"; selected: root.server-kind == 0; clicked => { root.server-kind = 0; } }
                     Chip { text: "Plex"; selected: root.server-kind == 1; clicked => { root.server-kind = 1; } }
-                    Chip { text: "Navidrome / Subsonic"; selected: root.server-kind == 2; clicked => { root.server-kind = 2; } }
+                    Chip { text: root.phone ? "Navidrome" : "Navidrome / Subsonic"; selected: root.server-kind == 2; clicked => { root.server-kind = 2; } }
                 }
                 server-url := TextField {
                     placeholder: root.server-kind == 0 ? "Address, e.g. 192.168.1.10 or http://nas:8096"
@@ -1227,8 +1507,8 @@ export component AppWindow inherits Window {
             }
         }
         Rectangle {
-            width: Math.min(760px, root.width - 48px);
-            height: Math.min(580px, root.height - 48px);
+            width: Math.min(760px, root.width - (root.phone ? 16px : 48px));
+            height: Math.min(580px, root.height - 48px - root.safe-area-insets.top - root.safe-area-insets.bottom);
             border-radius: 16px;
             background: Theme.surface;
             border-width: 1px;
@@ -1279,17 +1559,17 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         alignment: start;
                         Artwork {
-                            size: 190px;
+                            size: root.phone ? 96px : 190px;
                             source: root.fix-preview;
                             has-image: root.fix-has-preview;
                         }
-                        PillButton {
+                        if !Theme.mobile: PillButton {
                             text: "Choose image…";
                             icon: @image-url("icons/album.svg");
                             clicked => { root.fix-choose-image(); }
                         }
                         Text {
-                            width: 190px;
+                            width: root.phone ? 96px : 190px;
                             text: root.fix-status;
                             color: Theme.fg-muted;
                             font-size: 12px;
@@ -1416,7 +1696,7 @@ export component AppWindow inherits Window {
                     root.step-viz(-1);
                     return accept;
                 }
-                if (event.text == Key.Escape || event.text == "v" || event.text == "V") {
+                if (event.text == Key.Escape || event.text == Key.Back || event.text == "v" || event.text == "V") {
                     root.viz-fullscreen = false;
                     keys.focus();
                     return accept;
@@ -1458,7 +1738,7 @@ export component AppWindow inherits Window {
                 overflow: elide;
             }
             Text {
-                text: "← →: change style   ·   Esc: exit   ·   Space: play/pause";
+                text: Theme.mobile ? "Tap for the buttons" : "← →: change style   ·   Esc: exit   ·   Space: play/pause";
                 color: Theme.fg-muted;
                 font-size: 12px;
                 opacity: full-idle.active ? 1.0 : 0.0;
@@ -1468,7 +1748,7 @@ export component AppWindow inherits Window {
 
         full-controls := VizControls {
             x: parent.width - self.width - 20px;
-            y: 20px + root.titlebar-inset;
+            y: 20px + root.titlebar-inset + root.safe-area-insets.top;
             style: root.viz-style;
             fullscreen: true;
             opacity: full-idle.active ? 1.0 : 0.0;
@@ -1521,8 +1801,8 @@ export component AppWindow inherits Window {
     // Transient message (errors, "Added folder", …)
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
-        y: parent.height - 88px - self.height - 16px;
-        width: Math.min(560px, toast-text.preferred-width + 40px);
+        y: parent.height - (root.phone ? 140px + root.safe-area-insets.bottom : 88px) - self.height - 16px;
+        width: Math.min(Math.min(560px, parent.width - 24px), toast-text.preferred-width + 40px);
         height: 40px;
         border-radius: 20px;
         background: Theme.dark ? #2d2d38 : #1f1f26;

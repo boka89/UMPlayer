@@ -41,17 +41,20 @@ impl Paths {
     }
 }
 
-/// The OS music folder, which a new library starts with.
+/// The folders a new library starts with: the OS music folder.
 #[cfg(not(target_os = "android"))]
-pub fn default_music_folder() -> Option<PathBuf> {
-    directories::UserDirs::new().and_then(|d| d.audio_dir().map(Path::to_path_buf))
+pub fn default_music_folders() -> Vec<PathBuf> {
+    directories::UserDirs::new()
+        .and_then(|d| d.audio_dir().map(Path::to_path_buf))
+        .into_iter()
+        .collect()
 }
 
-/// Android: reading the shared Music folder needs a storage permission,
-/// which the test build does not ask for yet.
+/// Android: the shared Music and Download folders (there is no folder
+/// picker; the app may read the audio files in them once the user allows it).
 #[cfg(target_os = "android")]
-pub fn default_music_folder() -> Option<PathBuf> {
-    None
+pub fn default_music_folders() -> Vec<PathBuf> {
+    crate::android::music_folders()
 }
 
 /// Theme mode as used by the UI: follow the OS, or force light/dark.

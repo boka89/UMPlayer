@@ -197,7 +197,7 @@ export component NavItem inherits Rectangle {
     in property <bool> selected;
     callback clicked;
 
-    height: 38px;
+    height: Theme.phone ? 46px : 38px;
     border-radius: 8px;
     background: selected ? Theme.surface-hover : (touch.has-hover ? Theme.surface : transparent);
     animate background { duration: 120ms; }
@@ -252,9 +252,9 @@ export component SeekBar inherits Rectangle {
 
     property <float> dragged: Math.max(0, Math.min(1, touch.mouse-x / root.width));
     property <float> shown: touch.pressed ? dragged : Math.max(0, Math.min(1, value));
-    property <bool> hot: enabled && (touch.has-hover || touch.pressed);
+    property <bool> hot: enabled && (touch.has-hover || touch.pressed || Theme.phone);
 
-    height: 18px;
+    height: Theme.phone ? 30px : 18px;
 
     Rectangle {
         y: (parent.height - self.height) / 2;
@@ -683,7 +683,7 @@ export component MenuRow inherits Rectangle {
     in property <bool> has-icon: true;
     in property <bool> danger: false;
     callback clicked;
-    height: 34px;
+    height: Theme.phone ? 44px : 34px;
     border-radius: 6px;
     background: touch.has-hover ? Theme.surface-hover : transparent;
     HorizontalLayout {

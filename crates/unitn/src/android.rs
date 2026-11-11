@@ -1,14 +1,89 @@
-//! Android entry point (experimental). `crates/unitn-android` builds the
-//! shared library that Android's NativeActivity loads and forwards its
-//! `android_main` to the one here.
+//! Android entry point and the bridge to the Java side (experimental).
+//!
+//! `crates/unitn-android` builds the shared library that Android loads. It
+//! forwards `android_main` to the one here and implements [`Platform`] with
+//! JNI calls into `MainActivity` / `PlaybackService` (see its `java/` folder).
 
 use std::ffi::{c_char, c_int, CStr, CString};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
 
 pub use slint::android::AndroidApp;
 
+use crate::media::MediaCmd;
 use crate::settings::Paths;
+
+/// What the notification, the lock screen and Bluetooth devices show.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NowPlaying {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// Seconds; `None` for live radio.
+    pub duration: Option<f64>,
+    /// Seconds.
+    pub position: f64,
+    pub playing: bool,
+}
+
+/// The parts of Android that need Java. Implemented in `unitn-android`.
+pub trait Platform: Send + Sync {
+    /// Shows or updates the playback notification and media session, and
+    /// keeps the app alive in the background. `None` removes them.
+    fn playback(&self, now: Option<&NowPlaying>);
+    /// Opens a web page in the browser.
+    fn open_url(&self, url: &str) -> bool;
+    /// Asks for access to the music files and for notifications, if missing.
+    fn request_permissions(&self);
+}
+
+static PLATFORM: OnceLock<Box<dyn Platform>> = OnceLock::new();
+static MEDIA_TX: Mutex<Option<Sender<MediaCmd>>> = Mutex::new(None);
+static PERMISSIONS_CHANGED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn platform() -> Option<&'static dyn Platform> {
+    PLATFORM.get().map(|p| p.as_ref())
+}
+
+/// Media commands from the notification, headset buttons, etc. go here.
+pub(crate) fn set_media_sender(tx: Sender<MediaCmd>) {
+    if let Ok(mut slot) = MEDIA_TX.lock() {
+        *slot = Some(tx);
+    }
+}
+
+/// True once after the user answered a permission question.
+pub(crate) fn take_permissions_changed() -> bool {
+    PERMISSIONS_CHANGED.swap(false, Ordering::Relaxed)
+}
+
+/// Events from the Java side (any thread). Codes as in `MainActivity.java`:
+/// 0 play, 1 pause, 2 play/pause, 3 next, 4 previous, 5 stop,
+/// 6 seek to `arg` milliseconds, 10 a permission question was answered.
+pub fn on_java_event(code: i32, arg: i64) {
+    let cmd = match code {
+        0 => MediaCmd::Play,
+        1 => MediaCmd::Pause,
+        2 => MediaCmd::Toggle,
+        3 => MediaCmd::Next,
+        4 => MediaCmd::Previous,
+        5 => MediaCmd::Stop,
+        6 => MediaCmd::SeekTo(arg as f64 / 1000.0),
+        10 => {
+            PERMISSIONS_CHANGED.store(true, Ordering::Relaxed);
+            return;
+        }
+        _ => return,
+    };
+    if let Ok(slot) = MEDIA_TX.lock() {
+        if let Some(tx) = slot.as_ref() {
+            let _ = tx.send(cmd);
+        }
+    }
+}
 
 #[link(name = "log")]
 extern "C" {
@@ -46,9 +121,13 @@ fn system_property(name: &CStr) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
-pub fn android_main(app: AndroidApp) {
+pub fn android_main(app: AndroidApp, platform: Box<dyn Platform>) {
+    let _ = PLATFORM.set(platform);
     if let Err(e) = start(app) {
         logcat(&format!("fatal: {e:#}"));
+    }
+    if let Some(p) = crate::android::platform() {
+        p.playback(None);
     }
     // Android may keep the process after the activity is closed and would
     // then call android_main again in it; always start from a fresh process.
@@ -73,5 +152,36 @@ fn start(app: AndroidApp) -> Result<()> {
     std::env::set_var("TMPDIR", &tmp);
 
     slint::android::init(app).map_err(|e| anyhow!("could not start the Android UI backend: {e:?}"))?;
+
+    // Test hook: open a web page right away (checks the browser hand-over).
+    if let (Some(url), Some(p)) = (system_property(c"debug.unitn.open_url"), platform()) {
+        logcat(&format!("android: open_url test: {}", p.open_url(&url)));
+    }
     crate::run(Paths::in_dir(&data)?)
+}
+
+/// Storage roots: the built-in one first, then SD cards and USB drives.
+fn storage_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = vec![std::path::PathBuf::from("/storage/emulated/0")];
+    if let Ok(entries) = std::fs::read_dir("/storage") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name != "emulated" && name != "self" && entry.path().is_dir() {
+                roots.push(entry.path());
+            }
+        }
+    }
+    roots
+}
+
+/// Where music usually is on a phone: the Music and Download folders.
+pub(crate) fn music_folders() -> Vec<std::path::PathBuf> {
+    let mut folders = Vec::new();
+    for (i, root) in storage_roots().into_iter().enumerate() {
+        folders.push(root.join("Music"));
+        if i == 0 {
+            folders.push(root.join("Download"));
+        }
+    }
+    folders
 }

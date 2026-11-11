@@ -43,6 +43,7 @@ mod imp {
 }
 
 #[cfg(target_os = "android")]
+#[allow(dead_code)]
 mod imp {
     use super::PathBuf;
     use unitn_core::log::log;

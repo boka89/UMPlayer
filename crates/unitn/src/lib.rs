@@ -17,7 +17,7 @@ mod settings;
 #[cfg(target_os = "android")]
 mod android;
 #[cfg(target_os = "android")]
-pub use android::{android_main, AndroidApp};
+pub use android::{android_main, logcat, on_java_event, AndroidApp, NowPlaying, Platform};
 
 use std::cell::RefCell;
 use std::rc::Rc;

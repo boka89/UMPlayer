@@ -5,6 +5,10 @@ export global Theme {
     in-out property <int> mode: 0;
     in-out property <bool> system-dark: true;
     out property <bool> dark: mode == 0 ? system-dark : mode == 2;
+    /// The window is phone-sized: one column with tabs at the bottom.
+    in-out property <bool> phone: false;
+    /// Running on a phone or tablet (Android): no file dialogs, no windows.
+    in-out property <bool> mobile: false;
     /// "Cozy" song lists: tighter rows (false = "Comfy").
     in-out property <bool> compact: false;
     /// Window opacity, 0.5 (see-through) .. 1.0 (solid).
