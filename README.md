@@ -8,7 +8,7 @@ no account and no tracking.
 
 **Website and downloads: [unitn.bokors.net](https://unitn.bokors.net)**
 
-> Status: v0.5.10 — young but usable. Feedback and contributions welcome.
+> Status: v0.5.11 — young but usable. Feedback and contributions welcome.
 
 ![Unitn playing an album, dark theme](docs/screenshots/dark-playing.png)
 
