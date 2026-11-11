@@ -311,6 +311,28 @@ export component AppWindow inherits Window {
         track-menu.show();
     }
 
+    /// Android's Back button: one step back inside the app. False when
+    /// there is nowhere to go back to (the app then goes to the background).
+    public function go-back() -> bool {
+        track-menu.close();
+        add-stream-popup.close();
+        if (root.viz-fullscreen) {
+            root.viz-fullscreen = false;
+            keys.focus();
+            return true;
+        }
+        if (root.server-dialog) { root.close-server-dialog(); return true; }
+        if (root.fix-visible) { root.fix-cancel(); return true; }
+        if (root.search-open) { root.search-open = false; keys.focus(); return true; }
+        if (root.page == 5) { root.page = root.album-from-server ? 9 : 0; return true; }
+        if (root.page == 10 && root.podcast-view == 1) { root.podcast-back(); return true; }
+        if (root.page == 0 && root.albums-filtered) { root.show-all-albums(); return true; }
+        if (root.page == 0) { return false; }
+        // Pages opened from "More" go back to it; the tabs go back to Albums.
+        root.page = (root.phone && root.page != 11 && root.active-tab == 4) ? 11 : 0;
+        return true;
+    }
+
     /// Next/previous visualizer style.
     public function step-viz(delta: int) {
         root.viz-style = Math.mod(root.viz-style + delta + 5, 5);
@@ -345,14 +367,8 @@ export component AppWindow inherits Window {
         init => { self.focus(); }
         key-pressed(event) => {
             if (root.intro-visible) { root.intro-skip(); return accept; }
-            // Android's Back button: one step back inside the app first.
             if (event.text == Key.Back) {
-                if (root.search-open) { root.search-open = false; return accept; }
-                if (root.page == 5) { root.page = root.album-from-server ? 9 : 0; return accept; }
-                if (root.page == 10 && root.podcast-view == 1) { root.podcast-back(); return accept; }
-                if (root.page == 0 && root.albums-filtered) { root.show-all-albums(); return accept; }
-                if (root.page != 0) { root.page = (root.phone && root.page != 11 && root.active-tab == 4) ? 11 : 0; return accept; }
-                return reject;
+                return root.go-back() ? accept : reject;
             }
             if (event.modifiers.control || event.modifiers.meta) {
                 if (event.text == Key.RightArrow) { root.next(); return accept; }

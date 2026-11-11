@@ -104,7 +104,7 @@ if wait_for "ui: event State(Playing)" "$((paused + 1))" 10; then ok "media butt
 start_app; sleep 3
 tap 108 $TAB_Y 3; tap 270 480 3; shot phone-album             # Albums -> first album
 tap 324 $TAB_Y 3; shot phone-songs                            # Songs
-tap 1006 281 2; shot phone-song-menu; adb shell input keyevent KEYCODE_BACK; sleep 1
+tap 1006 281 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, closed by a tap outside
 tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
 tap 540 $TAB_Y 8; shot phone-radio                            # Radio
 tap 756 $TAB_Y 5; shot phone-podcasts                         # Podcasts
@@ -116,7 +116,11 @@ adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
 tap 300 2040 3; tap 440 576 3; shot phone-equalizer           # Now Playing -> Equalizer
 tap 440 576 1
-check "still running" adb shell pidof $APP
+# Back: Now Playing -> Albums, then out of the app (which keeps playing).
+adb shell input keyevent KEYCODE_BACK; sleep 2; shot phone-after-back
+adb shell input keyevent KEYCODE_BACK; sleep 3
+if adb shell dumpsys activity activities | grep -m1 "ResumedActivity" | grep -q "$APP"; then fail "Back leaves the app"; else ok "Back leaves the app"; fi
+check "still running after Back" adb shell pidof $APP
 savelog local
 
 # --- 3. internet radio + the browser hand-over ------------------------------

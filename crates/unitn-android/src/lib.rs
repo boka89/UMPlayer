@@ -125,6 +125,13 @@ impl Platform for Java {
         });
     }
 
+    fn move_to_back(&self) {
+        with_activity("moving to the background", |env, activity| {
+            env.call_method(activity, "moveToBack", "()V", &[])?;
+            Ok(())
+        });
+    }
+
     fn request_permissions(&self) {
         with_activity("asking for permissions", |env, activity| {
             env.call_method(activity, "requestAppPermissions", "()V", &[])?;

@@ -25,16 +25,18 @@ public class MainActivity extends NativeActivity {
 
     // Event codes, as in crates/unitn/src/android.rs.
     static final int PLAY = 0, PAUSE = 1, TOGGLE = 2, NEXT = 3, PREVIOUS = 4, STOP = 5, SEEK = 6;
-    static final int PERMISSIONS = 10;
+    static final int PERMISSIONS = 10, BACK = 11;
 
     /** Implemented in Rust (registered when the native library starts). */
     static native void nativeCommand(int code, long arg);
 
-    static void command(int code, long arg) {
+    static boolean command(int code, long arg) {
         try {
             nativeCommand(code, arg);
+            return true;
         } catch (UnsatisfiedLinkError e) {
             Log.w(TAG, "native side not ready for event " + code);
+            return false;
         }
     }
 
@@ -149,9 +151,21 @@ public class MainActivity extends NativeActivity {
         });
     }
 
-    /** Back on the first page leaves the app open in the background, so the music goes on. */
+    /** Back: the app goes one step back; on its first page it calls moveToBack(). */
     @Override
     public void onBackPressed() {
-        moveTaskToBack(true);
+        if (!command(BACK, 0)) {
+            moveTaskToBack(true);
+        }
+    }
+
+    /** Leaves the app open in the background, so the music goes on. */
+    public void moveToBack() {
+        main.post(new Runnable() {
+            @Override
+            public void run() {
+                moveTaskToBack(true);
+            }
+        });
     }
 }

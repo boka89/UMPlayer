@@ -186,20 +186,22 @@ fn run(paths: settings::Paths) -> Result<()> {
         });
     }
 
-    // Android: the status bar icons follow the theme (dark icons on light).
+    // Android: the Back button goes one step back in the app (or leaves it
+    // open in the background), and the status bar icons follow the theme.
     #[cfg(target_os = "android")]
-    let _bars_timer = {
+    let _android_timer = {
         let weak = ui.as_weak();
         let mut shown: Option<bool> = None;
         let timer = Timer::default();
-        timer.start(TimerMode::Repeated, Duration::from_millis(500), move || {
-            let Some(ui) = weak.upgrade() else { return };
+        timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+            let (Some(ui), Some(platform)) = (weak.upgrade(), android::platform()) else { return };
+            if android::take_back_pressed() && !ui.invoke_go_back() {
+                platform.move_to_back();
+            }
             let dark = ui.global::<Theme>().get_dark();
             if shown != Some(dark) {
                 shown = Some(dark);
-                if let Some(platform) = android::platform() {
-                    platform.light_system_bars(!dark);
-                }
+                platform.light_system_bars(!dark);
             }
         });
         timer

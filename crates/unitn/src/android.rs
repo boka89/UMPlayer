@@ -40,11 +40,14 @@ pub trait Platform: Send + Sync {
     fn request_permissions(&self);
     /// Dark icons in the status and navigation bars (for the light theme).
     fn light_system_bars(&self, light: bool);
+    /// Leaves the app open in the background (Back on the first page).
+    fn move_to_back(&self);
 }
 
 static PLATFORM: OnceLock<Box<dyn Platform>> = OnceLock::new();
 static MEDIA_TX: Mutex<Option<Sender<MediaCmd>>> = Mutex::new(None);
 static PERMISSIONS_CHANGED: AtomicBool = AtomicBool::new(false);
+static BACK_PRESSED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn platform() -> Option<&'static dyn Platform> {
     PLATFORM.get().map(|p| p.as_ref())
@@ -62,9 +65,15 @@ pub(crate) fn take_permissions_changed() -> bool {
     PERMISSIONS_CHANGED.swap(false, Ordering::Relaxed)
 }
 
+/// True once after Android's Back button was pressed.
+pub(crate) fn take_back_pressed() -> bool {
+    BACK_PRESSED.swap(false, Ordering::Relaxed)
+}
+
 /// Events from the Java side (any thread). Codes as in `MainActivity.java`:
 /// 0 play, 1 pause, 2 play/pause, 3 next, 4 previous, 5 stop,
-/// 6 seek to `arg` milliseconds, 10 a permission question was answered.
+/// 6 seek to `arg` milliseconds, 10 a permission question was answered,
+/// 11 the Back button.
 pub fn on_java_event(code: i32, arg: i64) {
     let cmd = match code {
         0 => MediaCmd::Play,
@@ -76,6 +85,10 @@ pub fn on_java_event(code: i32, arg: i64) {
         6 => MediaCmd::SeekTo(arg as f64 / 1000.0),
         10 => {
             PERMISSIONS_CHANGED.store(true, Ordering::Relaxed);
+            return;
+        }
+        11 => {
+            BACK_PRESSED.store(true, Ordering::Relaxed);
             return;
         }
         _ => return,
