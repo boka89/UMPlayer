@@ -26,6 +26,10 @@ export ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-$(ls -d "
 BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
 PLATFORM="$ANDROID_HOME/platforms/android-$TARGET_SDK"
 [ -f "$PLATFORM/android.jar" ] || PLATFORM=$(ls -d "$ANDROID_HOME"/platforms/android-[0-9][0-9] | sort -V | tail -1)
+# Slint compiles a small Java helper against the SDK's android.jar. Point it
+# at the platform directly: cargo-ndk sets ANDROID_PLATFORM to the minimum
+# API level, and that platform is usually not installed in the SDK.
+export ANDROID_JAR="$PLATFORM/android.jar"
 echo "NDK:         $ANDROID_NDK_HOME"
 echo "build-tools: $BUILD_TOOLS"
 echo "platform:    $PLATFORM"
