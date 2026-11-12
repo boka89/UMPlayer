@@ -922,6 +922,10 @@ export component NowPlayingPage inherits Rectangle {
     in property <string> lyrics-status;
     in property <string> lyrics-source;
     callback lyrics-open-changed(bool);
+    // Like: the song is in the "Likes" playlist.
+    in property <bool> can-like;
+    in property <bool> liked;
+    callback toggle-like();
 
     // Artist photo, faded into the background.
     if root.has-backdrop: Rectangle {
@@ -988,6 +992,13 @@ export component NowPlayingPage inherits Rectangle {
                 horizontal-stretch: 0;
                 HorizontalLayout {
                     spacing: 8px;
+                    if root.can-like: PillButton {
+                        horizontal-stretch: 0;
+                        text: root.liked ? "Liked" : "Like";
+                        icon: root.liked ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                        primary: root.liked;
+                        clicked => { root.toggle-like(); }
+                    }
                     PillButton {
                         horizontal-stretch: 0;
                         text: "Lyrics";
@@ -1005,10 +1016,16 @@ export component NowPlayingPage inherits Rectangle {
                 }
             }
         }
-        // Phone: Lyrics and Equalizer buttons in their own row.
+        // Phone: Like, Lyrics and Equalizer buttons in their own row.
         if Theme.phone: HorizontalLayout {
             alignment: start;
             spacing: 8px;
+            if root.can-like: PillButton {
+                text: root.liked ? "Liked" : "Like";
+                icon: root.liked ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                primary: root.liked;
+                clicked => { root.toggle-like(); }
+            }
             PillButton {
                 text: "Lyrics";
                 icon: @image-url("icons/lyrics.svg");
