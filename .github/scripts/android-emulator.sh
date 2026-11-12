@@ -158,8 +158,21 @@ shot phone-browser
 savelog browser
 adb shell am force-stop $APP
 
+# --- 4. the startup animation: the last frame must fit the screen -----------
+intro_shot() {
+  props
+  adb logcat -c
+  start_app; sleep 5     # 4.6 s of frames, then the logo holds for 0.9 s
+  shot "$1-intro"
+  sleep 3
+  check "$1 startup animation" logged "intro: "
+  adb shell am force-stop $APP
+}
+intro_shot phone
+
 # --------------------------------------------------------------- tablet size
 adb shell wm size reset; adb shell wm density reset; sleep 4
+intro_shot tablet
 props "$STREAM" 1
 start_app
 wait_for "ui: event Position" 4 60
