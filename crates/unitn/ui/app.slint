@@ -129,6 +129,10 @@ export component AppWindow inherits Window {
     in property <bool> np-has-cover: false;
     in property <image> np-backdrop;
     in property <bool> np-has-backdrop: false;
+    /// The playing song can be liked (not radio or podcasts), and is.
+    in property <bool> np-can-like: false;
+    in property <bool> np-liked: false;
+    callback toggle-like();
     in property <bool> playing: false;
     in property <bool> buffering: false;
     in property <float> position: 0;
@@ -765,6 +769,9 @@ export component AppWindow inherits Window {
                             eq-preamp-changed(v) => { root.eq-preamp-changed(v); }
                             eq-reset => { root.eq-reset(); }
                             eq-curve-aspect(a) => { root.eq-curve-aspect(a); }
+                            can-like: root.np-can-like;
+                            liked: root.np-liked;
+                            toggle-like => { root.toggle-like(); }
                             lyrics-open: root.lyrics-open;
                             lyrics-lines: root.lyrics-lines;
                             lyrics-current: root.lyrics-current;

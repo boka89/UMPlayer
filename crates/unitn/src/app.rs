@@ -259,6 +259,10 @@ fn long_duration(ms: u64) -> String {
     }
 }
 
+/// The playlist the Like button on Now Playing fills. Other features
+/// (playing Likes shuffled) look it up by this exact name.
+pub const LIKES_PLAYLIST: &str = "Likes";
+
 pub struct App {
     ui: Weak<AppWindow>,
     paths: Paths,
@@ -1405,6 +1409,81 @@ impl App {
             .collect();
         if let Some(ui) = self.ui() {
             ui.set_playlists(model(items));
+        }
+        self.update_liked();
+    }
+
+    // ------------------------------------------------------------------
+    // Likes: the heart on Now Playing adds the song to the "Likes"
+    // playlist (made on the first like) and takes it out again.
+    // ------------------------------------------------------------------
+
+    /// The playing song, if it is one that can be liked (not a radio
+    /// station or a podcast episode).
+    fn likeable_track(&self) -> Option<Track> {
+        match self.current_item()? {
+            Item::Track(t) if !t.path.to_string_lossy().starts_with("podcast://") => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    fn likes_playlist_id(&self) -> Option<i64> {
+        let exact = self.playlists.iter().find(|p| p.name == LIKES_PLAYLIST);
+        exact.or_else(|| self.playlists.iter().find(|p| p.name.eq_ignore_ascii_case(LIKES_PLAYLIST))).map(|p| p.id)
+    }
+
+    /// Shows whether the playing song is liked.
+    fn update_liked(&self) {
+        let track = self.likeable_track();
+        let liked = match (&track, self.likes_playlist_id()) {
+            (Some(t), Some(id)) => self.library.playlist_paths(id).map(|paths| paths.contains(&t.path)).unwrap_or(false),
+            _ => false,
+        };
+        if let Some(ui) = self.ui() {
+            ui.set_np_can_like(track.is_some());
+            ui.set_np_liked(liked);
+        }
+    }
+
+    /// Likes the playing song, or takes the like back.
+    pub fn toggle_like(&mut self) {
+        let Some(track) = self.likeable_track() else { return };
+        let result = match self.likes_playlist_id() {
+            Some(id) => {
+                let paths = self.library.playlist_paths(id).unwrap_or_default();
+                if paths.contains(&track.path) {
+                    let kept: Vec<PathBuf> = paths.into_iter().filter(|p| *p != track.path).collect();
+                    self.library.set_playlist_paths(id, &kept).map(|_| (id, false))
+                } else {
+                    self.remember_server_songs(std::slice::from_ref(&track));
+                    self.library.add_to_playlist(id, std::slice::from_ref(&track.path)).map(|_| (id, true))
+                }
+            }
+            None => {
+                self.remember_server_songs(std::slice::from_ref(&track));
+                self.library
+                    .create_playlist(LIKES_PLAYLIST)
+                    .and_then(|id| self.library.add_to_playlist(id, std::slice::from_ref(&track.path)).map(|_| (id, true)))
+            }
+        };
+        match result {
+            Ok((id, liked)) => {
+                log(format!("likes: {} {}", if liked { "added" } else { "removed" }, track.path.display()));
+                self.show_toast(&if liked {
+                    format!("Added \"{}\" to {LIKES_PLAYLIST}", track.title)
+                } else {
+                    format!("Removed \"{}\" from {LIKES_PLAYLIST}", track.title)
+                });
+                let open = self.current_playlist_id() == Some(id);
+                self.refresh_playlists();
+                if open {
+                    self.open_playlist_id(id);
+                }
+            }
+            Err(e) => {
+                log(format!("likes: could not save: {e:#}"));
+                self.show_toast(&format!("Could not save the like: {e}"));
+            }
         }
     }
 
@@ -2840,6 +2919,7 @@ impl App {
                 ui.set_playing_album(SharedString::new());
             }
         }
+        self.update_liked();
         self.load_lyrics();
     }
 
@@ -3374,6 +3454,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_play_playlist, |a, shuffle| a.play_playlist(shuffle));
     on!(on_play_playlist_track, |a, i| a.play_playlist_track(i.max(0) as usize));
     on!(on_save_queue_as_playlist, |a| a.save_queue_as_playlist());
+    on!(on_toggle_like, |a| a.toggle_like());
     on!(on_track_menu_requested, |a, c, i| a.track_menu_requested(c, i));
     on!(on_track_menu_action, |a, action, pl| a.track_menu_action(action, pl));
     on!(on_open_server, |a, i| a.open_server(i.max(0) as usize));
