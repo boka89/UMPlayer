@@ -5737,39 +5737,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unitn"
-version = "0.5.13"
-dependencies = [
- "anyhow",
- "directories",
- "image",
- "objc2 0.6.5",
- "rfd",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "souvlaki",
- "unitn-core",
-]
-
-[[package]]
-name = "unitn-core"
-version = "0.5.13"
-dependencies = [
- "anyhow",
- "cpal",
- "lofty",
- "roxmltree",
- "rusqlite",
- "serde",
- "serde_json",
- "symphonia",
- "ureq",
- "walkdir",
-]
-
-[[package]]
 name = "unicase"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5822,6 +5789,39 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unitn"
+version = "0.5.13"
+dependencies = [
+ "anyhow",
+ "directories",
+ "image",
+ "objc2 0.6.5",
+ "rfd",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "souvlaki",
+ "unitn-core",
+]
+
+[[package]]
+name = "unitn-core"
+version = "0.5.13"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "lofty",
+ "roxmltree",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "ureq",
+ "walkdir",
+]
 
 [[package]]
 name = "untrusted"
