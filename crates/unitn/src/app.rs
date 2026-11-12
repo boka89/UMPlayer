@@ -36,6 +36,8 @@ const VIZ_BARS: usize = 64;
 const RADIO_TAB_POPULAR: i32 = 0;
 const RADIO_TAB_FAVORITES: i32 = 1;
 const RADIO_TAB_HUNGARY: i32 = 2;
+/// Genre chips on the Radio page, in their order there (Radio Browser tags).
+const RADIO_GENRES: [&str; 6] = ["pop", "rock", "jazz", "classical", "electronic", "news"];
 /// No chip selected (search results or a genre).
 const RADIO_TAB_OTHER: i32 = -1;
 
@@ -113,9 +115,8 @@ struct FixState {
 
 enum StationQuery {
     Top,
-    Search(String),
-    Tag(String),
-    Country(String),
+    /// Name search and/or filters: any of the tags, and the country.
+    Filtered { name: String, tags: Vec<String>, country: Option<String> },
 }
 
 /// Something in the play queue.
@@ -315,6 +316,11 @@ pub struct App {
     favorites: HashSet<String>,
     radio_tab: i32,
     radio_request: u64,
+    /// Radio filters; several can be on at once (see `refresh_radio`).
+    radio_favorites: bool,
+    radio_hungary: bool,
+    radio_genres: [bool; RADIO_GENRES.len()],
+    radio_query: String,
 
     queue: Vec<Item>,
     queue_model: Rc<VecModel<QueueEntry>>,
@@ -426,6 +432,10 @@ impl App {
             favorites: HashSet::new(),
             radio_tab: RADIO_TAB_POPULAR,
             radio_request: 0,
+            radio_favorites: false,
+            radio_hungary: false,
+            radio_genres: [false; RADIO_GENRES.len()],
+            radio_query: String::new(),
             queue: Vec::new(),
             queue_model,
             current: None,
@@ -2333,20 +2343,70 @@ impl App {
         }
     }
 
+    /// The Popular, Favorites and Hungary chips. Popular clears every filter;
+    /// Favorites and Hungary switch on and off.
     pub fn load_radio_tab(&mut self, tab: i32) {
-        self.radio_tab = tab;
-        if let Some(ui) = self.ui() {
-            ui.set_radio_tab(tab);
+        match tab {
+            RADIO_TAB_FAVORITES => self.radio_favorites = !self.radio_favorites,
+            RADIO_TAB_HUNGARY => self.radio_hungary = !self.radio_hungary,
+            _ => {
+                self.radio_favorites = false;
+                self.radio_hungary = false;
+                self.radio_genres = [false; RADIO_GENRES.len()];
+                self.radio_query.clear();
+            }
         }
-        if tab == RADIO_TAB_FAVORITES {
-            self.radio_request += 1; // cancel pending network results
-            let favorites = self.library.favorite_stations().unwrap_or_default();
-            let status = plural(favorites.len(), "favorite", "favorites");
-            self.set_stations(favorites, status);
-        } else if tab == RADIO_TAB_HUNGARY {
-            self.fetch_stations(StationQuery::Country("HU".into()));
+        self.refresh_radio();
+    }
+
+    fn selected_genres(&self) -> Vec<String> {
+        RADIO_GENRES.iter().zip(self.radio_genres).filter(|(_, on)| *on).map(|(g, _)| g.to_string()).collect()
+    }
+
+    /// Shows the stations for the current filters. Selected genres combine
+    /// with OR (jazz or rock), the other filters with AND (Hungarian and jazz
+    /// or rock, among the favorites, matching the search).
+    fn refresh_radio(&mut self) {
+        let genres = self.selected_genres();
+        let filtered = self.radio_hungary || !genres.is_empty();
+        self.radio_tab = if self.radio_favorites {
+            RADIO_TAB_FAVORITES
+        } else if filtered || !self.radio_query.is_empty() {
+            RADIO_TAB_OTHER
         } else {
+            RADIO_TAB_POPULAR
+        };
+        if let Some(ui) = self.ui() {
+            ui.set_radio_tab(self.radio_tab);
+            ui.set_radio_hungary(self.radio_hungary);
+            ui.set_radio_filtered(filtered);
+            ui.set_radio_genres(model(self.radio_genres.to_vec()));
+        }
+        if self.radio_favorites {
+            self.radio_request += 1; // cancel pending network results
+            let hungary = self.radio_hungary;
+            let favorites: Vec<Station> = self
+                .library
+                .favorite_stations()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| !hungary || s.country.eq_ignore_ascii_case("hungary"))
+                .filter(|s| genres.is_empty() || genres.iter().any(|g| s.has_tag(g)))
+                .collect();
+            let status = if favorites.is_empty() && filtered {
+                "No favorites match these filters".to_string()
+            } else {
+                plural(favorites.len(), "favorite", "favorites")
+            };
+            self.set_stations(favorites, status);
+        } else if self.radio_tab == RADIO_TAB_POPULAR {
             self.fetch_stations(StationQuery::Top);
+        } else {
+            self.fetch_stations(StationQuery::Filtered {
+                name: self.radio_query.clone(),
+                tags: genres,
+                country: self.radio_hungary.then(|| "HU".to_string()),
+            });
         }
     }
 
@@ -2362,34 +2422,32 @@ impl App {
         thread::spawn(move || {
             let result = match query {
                 StationQuery::Top => radio.top(RADIO_LIMIT),
-                StationQuery::Search(q) => radio.search(&q, RADIO_LIMIT),
-                StationQuery::Tag(t) => radio.by_tag(&t, RADIO_LIMIT),
-                StationQuery::Country(c) => radio.by_country(&c, 300),
+                StationQuery::Filtered { name, tags, country } => {
+                    // A whole country fits in one longer list.
+                    let limit = if tags.is_empty() && name.is_empty() { 300 } else { RADIO_LIMIT };
+                    radio.filtered(&name, &tags, country.as_deref(), limit)
+                }
             }
             .map_err(|e| format!("{e:#}"));
             let _ = tx.send(Bg::Stations { request, result });
         });
     }
 
+    /// Searches the directory by name, within the selected filters.
     pub fn radio_search(&mut self, query: &str) {
-        let q = query.trim();
-        if q.is_empty() {
-            self.load_radio_tab(RADIO_TAB_POPULAR);
-        } else {
-            self.radio_tab = RADIO_TAB_OTHER;
-            if let Some(ui) = self.ui() {
-                ui.set_radio_tab(RADIO_TAB_OTHER);
-            }
-            self.fetch_stations(StationQuery::Search(q.to_string()));
+        self.radio_query = query.trim().to_string();
+        if !self.radio_query.is_empty() {
+            self.radio_favorites = false;
         }
+        self.refresh_radio();
     }
 
-    pub fn radio_genre(&mut self, genre: &str) {
-        self.radio_tab = RADIO_TAB_OTHER;
-        if let Some(ui) = self.ui() {
-            ui.set_radio_tab(RADIO_TAB_OTHER);
+    /// Switches a genre chip on or off.
+    pub fn radio_genre(&mut self, index: usize) {
+        if let Some(on) = self.radio_genres.get_mut(index) {
+            *on = !*on;
+            self.refresh_radio();
         }
-        self.fetch_stations(StationQuery::Tag(genre.to_lowercase()));
     }
 
     pub fn toggle_favorite(&mut self, index: usize) {
@@ -2403,8 +2461,8 @@ impl App {
         if let Err(e) = result {
             self.show_toast(&format!("Could not update favorites: {e}"));
         }
-        if self.radio_tab == RADIO_TAB_FAVORITES {
-            self.load_radio_tab(RADIO_TAB_FAVORITES);
+        if self.radio_favorites {
+            self.refresh_radio();
         } else {
             let items = self.station_items();
             if let Some(ui) = self.ui() {
@@ -2434,7 +2492,8 @@ impl App {
             Ok(()) => {
                 self.favorites.insert(station.uuid.clone());
                 self.show_toast(&format!("Added \"{name}\" to Favorites"));
-                self.load_radio_tab(RADIO_TAB_FAVORITES);
+                self.radio_favorites = true;
+                self.refresh_radio();
             }
             Err(e) => self.show_toast(&format!("Could not add the stream: {e}")),
         }
@@ -3449,7 +3508,7 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_play_song, |a, i| a.play_song(i.max(0) as usize));
     on!(on_rescan, |a| a.start_scan());
     on!(on_radio_select_tab, |a, t| a.load_radio_tab(t));
-    on!(on_radio_genre, |a, g| a.radio_genre(g.as_str()));
+    on!(on_radio_genre, |a, g| a.radio_genre(g.max(0) as usize));
     on!(on_add_custom_stream, |a, name, url| a.add_custom_stream(name.as_str(), url.as_str()));
     on!(on_play_station, |a, i| a.play_station(i.max(0) as usize));
     on!(on_toggle_favorite, |a, i| a.toggle_favorite(i.max(0) as usize));

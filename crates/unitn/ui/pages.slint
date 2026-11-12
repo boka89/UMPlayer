@@ -512,11 +512,15 @@ export component SongsPage inherits Rectangle {
 export component RadioPage inherits Rectangle {
     in property <[StationItem]> stations;
     in property <int> tab;
+    // Filters: several can be on at once (genres OR, the rest AND).
+    in property <bool> hungary;
+    in property <[bool]> genres-on;
+    in property <bool> filtered;
     in property <bool> loading;
     in property <string> status;
     in property <string> current-key;
     callback select-tab(int);
-    callback genre(string);
+    callback genre(int);
     callback add-stream();
     callback play-station(int);
     callback toggle-favorite(int);
@@ -530,12 +534,12 @@ export component RadioPage inherits Rectangle {
             alignment: start;
             Chip { text: "Popular"; selected: root.tab == 0; clicked => { root.select-tab(0); } }
             Chip { text: "Favorites"; selected: root.tab == 1; clicked => { root.select-tab(1); } }
-            Chip { text: "Hungary"; selected: root.tab == 2; clicked => { root.select-tab(2); } }
+            Chip { text: "Hungary"; selected: root.hungary; clicked => { root.select-tab(2); } }
             Rectangle { width: 12px; }
-            for g in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
+            for g[i] in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
                 text: g;
-                selected: false;
-                clicked => { root.genre(g); }
+                selected: root.genres-on[i];
+                clicked => { root.genre(i); }
             }
             Rectangle { horizontal-stretch: 1; }
             PillButton {
@@ -560,11 +564,11 @@ export component RadioPage inherits Rectangle {
                     alignment: start;
                     Chip { text: "Popular"; selected: root.tab == 0; clicked => { root.select-tab(0); } }
                     Chip { text: "Favorites"; selected: root.tab == 1; clicked => { root.select-tab(1); } }
-                    Chip { text: "Hungary"; selected: root.tab == 2; clicked => { root.select-tab(2); } }
-                    for g in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
+                    Chip { text: "Hungary"; selected: root.hungary; clicked => { root.select-tab(2); } }
+                    for g[i] in ["Pop", "Rock", "Jazz", "Classical", "Electronic", "News"]: Chip {
                         text: g;
-                        selected: false;
-                        clicked => { root.genre(g); }
+                        selected: root.genres-on[i];
+                        clicked => { root.genre(i); }
                     }
                     PillButton {
                         text: "Add stream URL";
@@ -585,8 +589,9 @@ export component RadioPage inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 icon: @image-url("icons/radio.svg");
-                title: root.tab == 1 ? "No favorite stations" : "No stations";
-                message: root.tab == 1 ? "Tap the heart next to a station to keep it here." : "Search for a station by name above.";
+                title: root.filtered ? "No matching stations" : (root.tab == 1 ? "No favorite stations" : "No stations");
+                message: root.filtered ? "Turn a filter off to see more stations."
+                    : (root.tab == 1 ? "Tap the heart next to a station to keep it here." : "Search for a station by name above.");
             }
             if root.stations.length > 0: ListView {
                 width: parent.width;
