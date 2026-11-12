@@ -28,6 +28,7 @@ struct StationDto {
     tags: String,
     codec: String,
     bitrate: u32,
+    clickcount: u64,
 }
 
 impl From<StationDto> for Station {
@@ -65,7 +66,7 @@ impl RadioBrowser {
         Self { agent }
     }
 
-    fn stations(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<Station>> {
+    fn dtos(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<StationDto>> {
         let mut last_error = String::from("no mirror available");
         for mirror in MIRRORS {
             let mut req = self.agent.get(&format!("{mirror}{path}"));
@@ -73,18 +74,43 @@ impl RadioBrowser {
                 req = req.query(k, v);
             }
             match req.call() {
-                Ok(resp) => {
-                    let list: Vec<StationDto> = resp.into_json()?;
-                    return Ok(list
-                        .into_iter()
-                        .map(Station::from)
-                        .filter(|s| !s.url.is_empty() && !s.name.is_empty())
-                        .collect());
-                }
+                Ok(resp) => return Ok(resp.into_json()?),
                 Err(e) => last_error = e.to_string(),
             }
         }
         Err(anyhow!("Radio Browser is unreachable ({last_error})"))
+    }
+
+    fn stations(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<Station>> {
+        Ok(usable(self.dtos(path, query)?.into_iter().map(Station::from)))
+    }
+
+    /// Stations matching several filters at once, most popular first:
+    /// any of `tags` (OR; no tags = every genre), and, when given, the
+    /// country (ISO 3166 code) and a name search (both AND).
+    pub fn filtered(&self, name: &str, tags: &[String], country_code: Option<&str>, limit: u32) -> Result<Vec<Station>> {
+        let limit_text = limit.to_string();
+        let country = country_code.map(str::to_uppercase);
+        let mut base: Vec<(&str, &str)> =
+            vec![("limit", &limit_text), ("hidebroken", "true"), ("order", "clickcount"), ("reverse", "true")];
+        let name = name.trim();
+        if !name.is_empty() {
+            base.push(("name", name));
+        }
+        if let Some(c) = country.as_deref() {
+            base.push(("countrycode", c));
+        }
+        let mut lists = Vec::new();
+        if tags.is_empty() {
+            lists.push(self.dtos("/json/stations/search", &base)?);
+        } else {
+            for tag in tags {
+                let mut query = base.clone();
+                query.push(("tag", tag));
+                lists.push(self.dtos("/json/stations/search", &query)?);
+            }
+        }
+        Ok(merge_ranked(lists, limit as usize))
     }
 
     /// Most popular stations worldwide.
@@ -135,6 +161,21 @@ impl RadioBrowser {
     }
 }
 
+/// Drops stations that cannot be played or shown.
+fn usable(list: impl Iterator<Item = Station>) -> Vec<Station> {
+    list.filter(|s| !s.url.is_empty() && !s.name.is_empty()).collect()
+}
+
+/// Joins several result lists into one: each station once, most clicked first.
+fn merge_ranked(lists: Vec<Vec<StationDto>>, limit: usize) -> Vec<Station> {
+    let mut seen = std::collections::HashSet::new();
+    let mut all: Vec<StationDto> = lists.into_iter().flatten().filter(|d| seen.insert(d.stationuuid.clone())).collect();
+    all.sort_by(|a, b| b.clickcount.cmp(&a.clickcount));
+    let mut list = usable(all.into_iter().map(Station::from));
+    list.truncate(limit);
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +189,22 @@ mod tests {
         assert_eq!(s.name, "Jazz FM");
         assert_eq!(s.url, "http://a/stream");
         assert_eq!(s.info(), "Germany • jazz, swing • MP3 128 kbps");
+    }
+
+    #[test]
+    fn merges_results_of_several_genres() {
+        let dto = |id: &str, clicks: u64| StationDto {
+            stationuuid: id.into(),
+            name: id.into(),
+            url: format!("http://{id}"),
+            clickcount: clicks,
+            ..Default::default()
+        };
+        let jazz = vec![dto("a", 50), dto("b", 10)];
+        let rock = vec![dto("c", 30), dto("a", 50)];
+        let merged = merge_ranked(vec![jazz, rock], 10);
+        let ids: Vec<&str> = merged.iter().map(|s| s.uuid.as_str()).collect();
+        assert_eq!(ids, ["a", "c", "b"]);
+        assert_eq!(merge_ranked(vec![vec![dto("a", 1), dto("b", 2)]], 1)[0].uuid, "b");
     }
 }

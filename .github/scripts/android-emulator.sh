@@ -110,6 +110,9 @@ tap 324 $TAB_Y 3; shot phone-songs                            # Songs
 tap 1006 281 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, closed by a tap outside
 tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
 tap 540 $TAB_Y 8; shot phone-radio                            # Radio
+tap 584 252 1; tap 775 252 1; tap 938 252 8                  # filters: Hungary + Pop + Rock at once
+shot phone-radio-filters
+tap 127 252 6                                                 # Popular clears them again
 tap 756 $TAB_Y 5; shot phone-podcasts                         # Podcasts
 # "More" opens a menu above its tab: Library (y 1620), Listen (1746),
 # Playlists (1872), and the theme switch with Settings (991, 2035).
