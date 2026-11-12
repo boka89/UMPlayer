@@ -125,7 +125,8 @@ adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
 tap 224 1485 3; shot phone-add-server                         # Settings -> Add server
 tap 400 321 2; shot phone-add-server-plex                     # its Plex tab
 adb shell input keyevent KEYCODE_BACK; sleep 2                # Back closes the dialog
-tap 300 2040 3; tap 145 576 3; shot phone-unliked            # Now Playing -> Like again: unlike
+# Another song plays by now: Like it, then tap again to take the like back.
+tap 300 2040 3; tap 145 576 3; tap 145 576 3; shot phone-unliked
 check "Like again takes the song out of Likes" logged "likes: removed"
 tap 700 576 3; shot phone-equalizer                           # Equalizer
 tap 700 576 1
