@@ -238,6 +238,9 @@ export component AppWindow inherits Window {
     callback podcast-refresh();
     callback podcast-unsubscribe();
     callback podcast-play(int);
+    callback podcast-toggle-favorite(int);
+    callback podcast-toggle-show-favorite();
+    in property <bool> podcast-favorite;
     in property <int> podcast-view: 0;
     in property <bool> podcast-searching;
     in property <[PodcastItem]> podcast-results;
@@ -795,6 +798,7 @@ export component AppWindow inherits Window {
                             show-image: root.podcast-image;
                             show-has-image: root.podcast-has-image;
                             episodes: root.podcast-episodes;
+                            show-favorite: root.podcast-favorite;
                             current-key: root.current-key;
                             subscribe(i) => { root.podcast-subscribe(i); }
                             open-show(i) => { root.podcast-open(i); }
@@ -802,6 +806,8 @@ export component AppWindow inherits Window {
                             refresh => { root.podcast-refresh(); }
                             unsubscribe => { root.podcast-unsubscribe(); }
                             play-episode(i) => { root.podcast-play(i); }
+                            toggle-favorite(i) => { root.podcast-toggle-favorite(i); }
+                            toggle-show-favorite => { root.podcast-toggle-show-favorite(); }
                         }
                         if root.page == 6: NowPlayingPage {
                             width: parent.width;

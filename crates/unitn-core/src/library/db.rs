@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS podcasts (
     description TEXT NOT NULL DEFAULT '',
     image_url   TEXT,
     cover       TEXT,
-    added       INTEGER NOT NULL DEFAULT 0
+    added       INTEGER NOT NULL DEFAULT 0,
+    favorite    INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS podcast_episodes (
     feed_url    TEXT NOT NULL,
@@ -149,6 +150,8 @@ pub struct Podcast {
     pub cover: Option<PathBuf>,
     /// Episodes not started yet.
     pub unplayed: usize,
+    /// Marked as a favourite (listed first).
+    pub favorite: bool,
 }
 
 /// An episode and how far it was listened to.
@@ -227,6 +230,19 @@ impl AlbumFix {
     }
 }
 
+/// Adds columns that newer versions expect to databases made by older ones.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has_column = |table: &str, column: &str| -> Result<bool> {
+        let mut st = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let names = st.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(names.iter().any(|n| n == column))
+    };
+    if !has_column("podcasts", "favorite")? {
+        conn.execute_batch("ALTER TABLE podcasts ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")?;
+    }
+    Ok(())
+}
+
 fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -247,6 +263,7 @@ impl Library {
         conn.busy_timeout(Duration::from_secs(10))?;
         let _mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -599,12 +616,13 @@ impl Library {
         Ok(())
     }
 
-    /// Subscribed shows, by title.
+    /// Subscribed shows: favourites first, then by title.
     pub fn podcasts(&self) -> Result<Vec<Podcast>> {
         let mut st = self.conn.prepare(
             "SELECT p.feed_url, p.title, p.author, p.description, p.image_url, p.cover,
-                    (SELECT COUNT(*) FROM podcast_episodes e WHERE e.feed_url = p.feed_url AND e.played = 0 AND e.position = 0)
-             FROM podcasts p ORDER BY p.title COLLATE NOCASE",
+                    (SELECT COUNT(*) FROM podcast_episodes e WHERE e.feed_url = p.feed_url AND e.played = 0 AND e.position = 0),
+                    p.favorite
+             FROM podcasts p ORDER BY p.favorite DESC, p.title COLLATE NOCASE",
         )?;
         let rows = st.query_map([], |r| {
             Ok(Podcast {
@@ -617,9 +635,16 @@ impl Library {
                 },
                 cover: r.get::<_, Option<String>>(5)?.map(PathBuf::from),
                 unplayed: r.get::<_, i64>(6)?.max(0) as usize,
+                favorite: r.get::<_, i64>(7)? != 0,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Marks a subscribed show as a favourite, or not.
+    pub fn set_podcast_favorite(&self, feed_url: &str, favorite: bool) -> Result<()> {
+        self.conn.execute("UPDATE podcasts SET favorite = ?2 WHERE feed_url = ?1", params![feed_url, favorite as i64])?;
+        Ok(())
     }
 
     pub fn is_subscribed(&self, feed_url: &str) -> Result<bool> {
@@ -921,6 +946,44 @@ mod tests {
         assert_eq!(lib.cached_lyrics("none", 200).unwrap(), Some(None));
         // "Not found" is retried after a week.
         assert_eq!(lib.cached_lyrics("none", 100 + 8 * 86400).unwrap(), None);
+    }
+
+    #[test]
+    fn favourite_podcasts_come_first() {
+        use crate::podcasts::Show;
+        let lib = Library::open_in_memory().unwrap();
+        for (url, title) in [("https://f/a", "Alpha"), ("https://f/b", "beta"), ("https://f/c", "Gamma")] {
+            let show = Show { feed_url: url.into(), title: title.into(), ..Default::default() };
+            lib.subscribe_podcast(&show, None, 1).unwrap();
+        }
+        let titles = |lib: &Library| lib.podcasts().unwrap().iter().map(|p| p.show.title.clone()).collect::<Vec<_>>();
+        assert_eq!(titles(&lib), vec!["Alpha", "beta", "Gamma"]);
+        lib.set_podcast_favorite("https://f/c", true).unwrap();
+        assert_eq!(titles(&lib), vec!["Gamma", "Alpha", "beta"]);
+        assert!(lib.podcasts().unwrap()[0].favorite);
+        // Re-subscribing (e.g. a refresh of the show's details) keeps the flag.
+        let show = Show { feed_url: "https://f/c".into(), title: "Gamma".into(), ..Default::default() };
+        lib.subscribe_podcast(&show, None, 2).unwrap();
+        assert!(lib.podcasts().unwrap()[0].favorite);
+        lib.set_podcast_favorite("https://f/c", false).unwrap();
+        assert_eq!(titles(&lib), vec!["Alpha", "beta", "Gamma"]);
+    }
+
+    #[test]
+    fn adds_favorite_column_to_old_databases() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE podcasts (feed_url TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '',
+             description TEXT NOT NULL DEFAULT '', image_url TEXT, cover TEXT, added INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO podcasts (feed_url, title) VALUES ('https://f/old', 'Old');",
+        )
+        .unwrap();
+        let lib = Library::init(conn).unwrap();
+        let shows = lib.podcasts().unwrap();
+        assert_eq!(shows[0].show.title, "Old");
+        assert!(!shows[0].favorite);
+        lib.set_podcast_favorite("https://f/old", true).unwrap();
+        assert!(lib.podcasts().unwrap()[0].favorite);
     }
 
     #[test]

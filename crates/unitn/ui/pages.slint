@@ -1724,8 +1724,10 @@ export component PlaylistPage inherits Rectangle {
 component PodcastRow inherits Rectangle {
     in property <PodcastItem> item;
     in property <bool> show-subscribe;
+    in property <bool> show-favorite;
     callback clicked();
     callback subscribe();
+    callback toggle-favorite();
 
     height: 72px;
     border-radius: 8px;
@@ -1781,6 +1783,17 @@ component PodcastRow inherits Rectangle {
                 clicked => { root.subscribe(); }
             }
         }
+        if root.show-favorite: VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: root.item.favorite ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                active: root.item.favorite;
+                tint: Theme.fg-muted;
+                size: 34px;
+                icon-size: 18px;
+                clicked => { root.toggle-favorite(); }
+            }
+        }
     }
 }
 
@@ -1800,12 +1813,15 @@ export component PodcastsPage inherits Rectangle {
     in property <bool> show-has-image;
     in property <[EpisodeItem]> episodes;
     in property <string> current-key;
+    in property <bool> show-favorite;
     callback subscribe(int);
     callback open-show(int);
     callback back();
     callback refresh();
     callback unsubscribe();
     callback play-episode(int);
+    callback toggle-favorite(int);
+    callback toggle-show-favorite();
 
     if root.view == 0: VerticalLayout {
         padding-left: Theme.phone ? 8px : 24px;
@@ -1848,7 +1864,9 @@ export component PodcastsPage inherits Rectangle {
                 for show[i] in root.shows: PodcastRow {
                     item: show;
                     show-subscribe: false;
+                    show-favorite: true;
                     clicked => { root.open-show(i); }
+                    toggle-favorite => { root.toggle-favorite(i); }
                 }
             }
         }
@@ -1913,6 +1931,12 @@ export component PodcastsPage inherits Rectangle {
                         clicked => { root.refresh(); }
                     }
                     PillButton {
+                        text: root.show-favorite ? "Favorite" : "Add to Favorites";
+                        icon: root.show-favorite ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                        primary: root.show-favorite;
+                        clicked => { root.toggle-show-favorite(); }
+                    }
+                    PillButton {
                         text: "Unsubscribe";
                         icon: @image-url("icons/trash.svg");
                         clicked => { root.unsubscribe(); }
@@ -1927,6 +1951,14 @@ export component PodcastsPage inherits Rectangle {
                 text: root.loading ? "Refreshing…" : "Refresh";
                 icon: @image-url("icons/refresh.svg");
                 clicked => { root.refresh(); }
+            }
+            IconButton {
+                icon: root.show-favorite ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                active: root.show-favorite;
+                tint: Theme.fg-muted;
+                size: 38px;
+                icon-size: 18px;
+                clicked => { root.toggle-show-favorite(); }
             }
             PillButton {
                 text: "Unsubscribe";
