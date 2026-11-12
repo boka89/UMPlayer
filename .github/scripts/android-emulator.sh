@@ -74,6 +74,9 @@ check "startup" logged "startup: ready"
 check "local song plays" logged "ui: event Position"
 tap 300 2040 3          # the small player -> Now Playing
 shot phone-nowplaying
+# Now Playing buttons on y = 576: Like (x 145), Lyrics (407), Equalizer (700).
+tap 145 576 3; shot phone-liked                               # Like: makes "Likes"
+check "Like adds the song to Likes" logged "likes: added"
 
 adb shell input keyevent KEYCODE_HOME
 sleep 3
@@ -115,15 +118,17 @@ tap 700 1746 3; shot phone-more-listen                        # -> Listen
 tap 211 533 3; shot phone-queue                               # Listen -> Queue
 tap 972 $TAB_Y 2; tap 700 1620 3; shot phone-more-library     # More -> Library
 tap 211 407 3; shot phone-artists                             # Library -> Artists
-tap 972 $TAB_Y 2; tap 700 1872 3; shot phone-more-playlists   # More -> Playlists
+tap 972 $TAB_Y 2; tap 700 1872 3; shot phone-more-playlists   # More -> Playlists (with Likes)
 tap 972 $TAB_Y 2; tap 991 2035 3; shot phone-settings         # More -> Settings
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
 tap 224 1485 3; shot phone-add-server                         # Settings -> Add server
 tap 400 321 2; shot phone-add-server-plex                     # its Plex tab
 adb shell input keyevent KEYCODE_BACK; sleep 2                # Back closes the dialog
-tap 300 2040 3; tap 440 576 3; shot phone-equalizer           # Now Playing -> Equalizer
-tap 440 576 1
+tap 300 2040 3; tap 145 576 3; shot phone-unliked            # Now Playing -> Like again: unlike
+check "Like again takes the song out of Likes" logged "likes: removed"
+tap 700 576 3; shot phone-equalizer                           # Equalizer
+tap 700 576 1
 # Back: Now Playing -> Albums, then out of the app (which keeps playing).
 adb shell input keyevent KEYCODE_BACK; sleep 2; shot phone-after-back
 adb shell input keyevent KEYCODE_BACK; sleep 3
