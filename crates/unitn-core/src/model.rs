@@ -90,6 +90,13 @@ pub struct Station {
 }
 
 impl Station {
+    /// True if one of the station's tags contains `tag` (ignoring case), the
+    /// way Radio Browser matches a genre: "pop" also finds "pop rock".
+    pub fn has_tag(&self, tag: &str) -> bool {
+        let tag = tag.to_lowercase();
+        self.tags.split(',').any(|t| t.trim().to_lowercase().contains(&tag))
+    }
+
     /// Short human readable description, e.g. "Germany • jazz, swing • MP3 128 kbps".
     pub fn info(&self) -> String {
         let mut parts: Vec<String> = Vec::new();

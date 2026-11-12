@@ -115,6 +115,9 @@ export component AppWindow inherits Window {
     // Radio
     in property <[StationItem]> stations;
     in property <int> radio-tab: 0;
+    in property <bool> radio-hungary: false;
+    in property <bool> radio-filtered: false;
+    in property <[bool]> radio-genres: [false, false, false, false, false, false];
     in property <bool> radio-loading: false;
     in property <string> radio-status;
 
@@ -272,7 +275,7 @@ export component AppWindow inherits Window {
     callback lyrics-online-changed(bool);
     in property <bool> startup-sound: true;
     callback startup-sound-changed(bool);
-    callback radio-genre(string);
+    callback radio-genre(int);
     callback add-custom-stream(string, string);
     callback play-station(int);
     callback toggle-favorite(int);
@@ -704,6 +707,9 @@ export component AppWindow inherits Window {
                             height: parent.height;
                             stations: root.stations;
                             tab: root.radio-tab;
+                            hungary: root.radio-hungary;
+                            filtered: root.radio-filtered;
+                            genres-on: root.radio-genres;
                             loading: root.radio-loading;
                             status: root.radio-status;
                             current-key: root.current-key;
