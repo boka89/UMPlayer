@@ -162,7 +162,7 @@ adb shell am force-stop $APP
 intro_shot() {
   props
   adb logcat -c
-  start_app; sleep 5     # 4.6 s of frames, then the logo holds for 0.9 s
+  start_app; sleep 4     # 4.6 s of frames (the logo is complete by ~4 s), then a 0.9 s hold
   shot "$1-intro"
   sleep 3
   check "$1 startup animation" logged "intro: "
