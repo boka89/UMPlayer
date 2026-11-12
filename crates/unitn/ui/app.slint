@@ -209,6 +209,11 @@ export component AppWindow inherits Window {
     callback fix-cancel();
     callback track-menu-requested(int, int);
     callback track-menu-action(int, int);
+    // Songs page: picked songs and swipes.
+    in property <int> song-selection-count: 0;
+    callback toggle-song-selected(int);
+    callback clear-song-selection();
+    callback song-swiped(int, bool) -> string;
 
     // Settings
     in property <[string]> folders;
@@ -337,6 +342,7 @@ export component AppWindow inherits Window {
         }
         if (root.server-dialog) { root.close-server-dialog(); return true; }
         if (root.fix-visible) { root.fix-cancel(); return true; }
+        if (root.page == 2 && root.song-selection-count > 0) { root.clear-song-selection(); return true; }
         if (root.search-open) { root.search-open = false; keys.focus(); return true; }
         if (root.page == 5) { root.page = root.album-from-server ? 9 : 0; return true; }
         if (root.page == 10 && root.podcast-view == 1) { root.podcast-back(); return true; }
@@ -390,6 +396,7 @@ export component AppWindow inherits Window {
                 if (event.text == "f" || event.text == "F") { search.focus-input(); return accept; }
                 return reject;
             }
+            if (event.text == Key.Escape && root.page == 2 && root.song-selection-count > 0) { root.clear-song-selection(); return accept; }
             if (event.text == " ") { root.toggle-play(); return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(5); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-5); return accept; }
@@ -763,8 +770,13 @@ export component AppWindow inherits Window {
                             songs: root.songs;
                             current-key: root.current-key;
                             searching: root.library-query != "";
+                            selection-count: root.song-selection-count;
                             play-song(i) => { root.play-song(i); }
-                        track-menu(i, x, y) => { root.show-track-menu(1, i, x, y); }
+                            track-menu(i, x, y) => { root.show-track-menu(1, i, x, y); }
+                            toggle-selected(i) => { root.toggle-song-selected(i); }
+                            clear-selection => { root.clear-song-selection(); }
+                            selection-menu(x, y) => { root.show-track-menu(4, -1, x, y); }
+                            song-swiped(i, right) => { return root.song-swiped(i, right); }
                         }
                         if root.page == 3: RadioPage {
                             width: parent.width;
@@ -1573,17 +1585,18 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 padding: 6px;
                 spacing: 1px;
-                MenuRow {
+                // Context 4 is "Add to Playlist…" for the picked songs: playlists only.
+                if root.menu-context != 4: MenuRow {
                     text: root.menu-context == 3 ? "Play album next" : "Play next";
                     icon: @image-url("icons/next.svg");
                     clicked => { root.track-menu-action(0, -1); }
                 }
-                MenuRow {
+                if root.menu-context != 4: MenuRow {
                     text: "Add to queue";
                     icon: @image-url("icons/queue.svg");
                     clicked => { root.track-menu-action(1, -1); }
                 }
-                Rectangle { height: 1px; background: Theme.border; }
+                if root.menu-context != 4: Rectangle { height: 1px; background: Theme.border; }
                 HorizontalLayout {
                     padding-left: 10px;
                     height: 26px;

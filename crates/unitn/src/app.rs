@@ -348,6 +348,8 @@ pub struct App {
     playlist_tracks: Vec<Track>,
     /// (context, index) of the song menu that is open.
     menu_target: (i32, i32),
+    /// Songs picked on the Songs page (long press), in the order picked.
+    song_selection: Vec<Track>,
     /// Queue index the engine was told to play next (gapless).
     planned_next: Option<usize>,
     eq_gains_model: Rc<VecModel<f32>>,
@@ -458,6 +460,7 @@ impl App {
             current_playlist: None,
             playlist_tracks: Vec::new(),
             menu_target: (0, -1),
+            song_selection: Vec::new(),
             planned_next: None,
             eq_gains_model: Rc::new(VecModel::from(vec![0.0f32; 10])),
             eq_aspect: 1.5,
@@ -1054,7 +1057,21 @@ impl App {
             artist: t.artist.as_str().into(),
             album: t.album.as_str().into(),
             duration: if t.duration_ms > 0 { format_time(t.duration_secs()).into() } else { SharedString::new() },
+            selected: false,
         }
+    }
+
+    /// Rows of the Songs page, with the picked songs marked.
+    fn song_items(&self) -> Vec<TrackItem> {
+        self.songs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| TrackItem { selected: self.is_song_selected(t), ..Self::track_item(t, (i + 1).to_string()) })
+            .collect()
+    }
+
+    fn is_song_selected(&self, t: &Track) -> bool {
+        self.song_selection.iter().any(|s| s.path == t.path)
     }
 
     fn reload_library(&mut self) {
@@ -1083,8 +1100,7 @@ impl App {
                 initial: initial(&a.name),
             })
             .collect();
-        let song_items: Vec<TrackItem> =
-            self.songs.iter().enumerate().map(|(i, t)| Self::track_item(t, (i + 1).to_string())).collect();
+        let song_items = self.song_items();
 
         if let Some(ui) = self.ui() {
             ui.set_albums(model(album_items));
@@ -1363,8 +1379,7 @@ impl App {
     }
 
     fn show_songs(&mut self) {
-        let items: Vec<TrackItem> =
-            self.songs.iter().enumerate().map(|(i, t)| Self::track_item(t, (i + 1).to_string())).collect();
+        let items = self.song_items();
         if let Some(ui) = self.ui() {
             ui.set_songs(model(items));
         }
@@ -2244,6 +2259,7 @@ impl App {
             1 => pick(&self.songs),
             2 => pick(&self.playlist_tracks),
             3 => self.album_tracks.clone(),
+            4 => self.song_selection.clone(),
             _ => Vec::new(),
         }
     }
@@ -2263,32 +2279,20 @@ impl App {
         }
         let what = if tracks.len() == 1 { format!("\"{}\"", tracks[0].title) } else { plural(tracks.len(), "song", "songs") };
         let paths: Vec<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();
+        let from_selection = self.menu_target.0 == 4;
         match action {
             0 | 1 => {
-                let was_empty = self.queue.is_empty();
-                let items: Vec<Item> = tracks.into_iter().map(Item::Track).collect();
-                let at = if action == 0 { self.current.map(|c| c + 1).unwrap_or(0) } else { self.queue.len() };
-                for (k, item) in items.into_iter().enumerate() {
-                    self.queue.insert(at + k, item);
-                }
-                if let Some(c) = self.current {
-                    if at <= c {
-                        self.current = Some(c + paths.len());
-                    }
-                }
-                self.history.clear();
-                self.rebuild_queue_model();
-                self.update_next();
-                if was_empty || self.state == PlayState::Stopped && self.current.is_none() {
-                    self.play_index(at);
-                } else {
-                    self.show_toast(&if action == 0 { format!("{what} will play next") } else { format!("Added {what} to the queue") });
+                if let Some(message) = self.enqueue(tracks, action == 0) {
+                    self.show_toast(&message);
                 }
             }
             2 => {
                 let Some(pl) = self.playlists.get(playlist.max(0) as usize).cloned() else { return };
                 match self.library.add_to_playlist(pl.id, &paths) {
                     Ok(()) => {
+                        if from_selection {
+                            self.clear_song_selection();
+                        }
                         self.show_toast(&format!("Added {what} to \"{}\"", pl.name));
                         let open = self.current_playlist_id() == Some(pl.id);
                         self.refresh_playlists();
@@ -2301,6 +2305,9 @@ impl App {
             }
             3 => {
                 if let Some(id) = self.create_playlist_with("New Playlist", &paths) {
+                    if from_selection {
+                        self.clear_song_selection();
+                    }
                     let name = self.playlists.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_default();
                     self.show_toast(&format!("Created \"{name}\" with {what}"));
                 }
@@ -2313,6 +2320,113 @@ impl App {
                 self.open_playlist_id(id);
             }
             _ => {}
+        }
+    }
+
+    /// Puts songs into the queue: after the song playing now (`next`) or at
+    /// the end. Starts playing when nothing was queued. Returns what to tell
+    /// the user, or None when playback started (that is visible anyway).
+    fn enqueue(&mut self, tracks: Vec<Track>, next: bool) -> Option<String> {
+        if tracks.is_empty() {
+            return None;
+        }
+        let what = if tracks.len() == 1 { format!("\"{}\"", tracks[0].title) } else { plural(tracks.len(), "song", "songs") };
+        let count = tracks.len();
+        let was_empty = self.queue.is_empty();
+        let at = if next { self.current.map(|c| c + 1).unwrap_or(0) } else { self.queue.len() };
+        for (k, t) in tracks.into_iter().enumerate() {
+            self.queue.insert(at + k, Item::Track(t));
+        }
+        if let Some(c) = self.current {
+            if at <= c {
+                self.current = Some(c + count);
+            }
+        }
+        self.history.clear();
+        self.rebuild_queue_model();
+        self.update_next();
+        log(format!("queue: {count} added {}", if next { "next" } else { "at the end" }));
+        if was_empty || self.state == PlayState::Stopped && self.current.is_none() {
+            self.play_index(at);
+            None
+        } else if next {
+            Some(format!("{what} will play next"))
+        } else {
+            Some(format!("Added {what} to the end of the queue"))
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Songs page: picking songs and swiping them into the queue
+    // ------------------------------------------------------------------
+
+    fn show_song_selection(&mut self) {
+        let count = self.song_selection.len() as i32;
+        if let Some(ui) = self.ui() {
+            ui.set_song_selection_count(count);
+        }
+    }
+
+    /// Long press (or a tap while songs are picked): picks the song or
+    /// lets it go again.
+    pub fn toggle_song_selected(&mut self, index: usize) {
+        let Some(track) = self.songs.get(index).cloned() else { return };
+        let selected = if let Some(k) = self.song_selection.iter().position(|s| s.path == track.path) {
+            self.song_selection.remove(k);
+            false
+        } else {
+            self.song_selection.push(track);
+            true
+        };
+        log(format!("songs: {} picked", self.song_selection.len()));
+        if let Some(ui) = self.ui() {
+            let m = ui.get_songs();
+            if let Some(mut item) = m.row_data(index) {
+                item.selected = selected;
+                m.set_row_data(index, item);
+            }
+        }
+        self.show_song_selection();
+    }
+
+    pub fn clear_song_selection(&mut self) {
+        if self.song_selection.is_empty() {
+            return;
+        }
+        self.song_selection.clear();
+        if let Some(ui) = self.ui() {
+            let m = ui.get_songs();
+            for i in 0..m.row_count() {
+                if let Some(mut item) = m.row_data(i) {
+                    if item.selected {
+                        item.selected = false;
+                        m.set_row_data(i, item);
+                    }
+                }
+            }
+        }
+        self.show_song_selection();
+    }
+
+    /// A song row was swiped: right puts it after the song playing now,
+    /// left at the end of the queue. A picked song takes all picked songs
+    /// with it (and the picking ends). Returns the text for the bubble.
+    pub fn song_swiped(&mut self, index: usize, next: bool) -> String {
+        let Some(track) = self.songs.get(index).cloned() else { return String::new() };
+        let tracks = if self.is_song_selected(&track) {
+            let picked = self.song_selection.clone();
+            self.clear_song_selection();
+            picked
+        } else {
+            vec![track]
+        };
+        let first = tracks[0].title.clone();
+        let count = tracks.len();
+        log(format!("songs: swiped {} with {count} song(s)", if next { "right" } else { "left" }));
+        match self.enqueue(tracks, next) {
+            Some(message) => message,
+            None if count == 1 => format!("Playing \"{first}\""),
+            None => format!("Playing {}", plural(count, "song", "songs")),
         }
     }
 
@@ -3534,6 +3648,16 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_play_album, |a, shuffle| a.play_album(shuffle));
     on!(on_play_album_track, |a, i| a.play_album_track(i.max(0) as usize));
     on!(on_play_song, |a, i| a.play_song(i.max(0) as usize));
+    on!(on_toggle_song_selected, |a, i| a.toggle_song_selected(i.max(0) as usize));
+    on!(on_clear_song_selection, |a| a.clear_song_selection());
+    {
+        let app = app.clone();
+        ui.on_song_swiped(move |i, next| {
+            let mut text = String::new();
+            with(&app, |a| text = a.song_swiped(i.max(0) as usize, next));
+            text.into()
+        });
+    }
     on!(on_rescan, |a| a.start_scan());
     on!(on_radio_select_tab, |a, t| a.load_radio_tab(t));
     on!(on_radio_genre, |a, g| a.radio_genre(g.max(0) as usize));

@@ -1,0 +1,67 @@
+// A list like the standard ListView (rows are created only while they are
+// on screen), whose scrolling can be switched off for a moment. The Songs
+// page does that while a row is swiped sideways, so a slightly slanted swipe
+// does not turn into scrolling halfway through.
+//
+// The Slint compiler treats any component named "ListView" that has these
+// content-* and visible-* properties as a list with lazily created rows.
+
+import { Theme } from "theme.slint";
+
+export component ListView inherits Rectangle {
+    /// False: touch drags do not scroll (the mouse wheel still does).
+    in property <bool> interactive: true;
+    out property <length> visible-width <=> flick.width;
+    out property <length> visible-height <=> flick.height;
+    in-out property <length> content-width <=> flick.content-width;
+    in-out property <length> content-height <=> flick.content-height;
+    in-out property <length> content-x <=> flick.content-x;
+    in-out property <length> content-y <=> flick.content-y;
+
+    property <bool> can-scroll: flick.content-height > flick.height;
+    property <length> thumb-height: Math.max(32px, flick.height * flick.height / Math.max(1px, flick.content-height));
+    property <length> thumb-travel: flick.height - root.thumb-height;
+    property <length> scroll-range: Math.max(1px, flick.content-height - flick.height);
+    property <length> drag-start;
+
+    flick := Flickable {
+        x: 0;
+        y: 0;
+        width: parent.width - (Theme.mobile ? 0px : 10px);
+        height: parent.height;
+        interactive: root.interactive;
+        @children
+    }
+
+    // Scroll bar: a thin thumb; on the desktop it can be dragged.
+    if root.can-scroll: Rectangle {
+        x: parent.width - self.width;
+        width: Theme.mobile ? 4px : 10px;
+        height: parent.height;
+
+        bar-touch := TouchArea {
+            enabled: !Theme.mobile;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.drag-start = flick.content-y;
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    flick.content-y = Math.max(-root.scroll-range, Math.min(0px,
+                        root.drag-start - (self.mouse-y - self.pressed-y) * root.scroll-range / Math.max(1px, root.thumb-travel)));
+                }
+            }
+        }
+        Rectangle {
+            y: -flick.content-y / root.scroll-range * root.thumb-travel;
+            width: Theme.mobile ? 3px : (bar-touch.has-hover || bar-touch.pressed ? 8px : 5px);
+            x: parent.width - self.width - 1px;
+            height: root.thumb-height;
+            border-radius: self.width / 2;
+            background: Theme.fg-muted;
+            opacity: Theme.mobile ? 0.5 : (bar-touch.pressed ? 0.8 : 0.45);
+            animate width { duration: 120ms; }
+        }
+    }
+}
