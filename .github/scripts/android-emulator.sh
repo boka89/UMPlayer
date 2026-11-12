@@ -109,6 +109,19 @@ tap 108 $TAB_Y 3; tap 270 480 3; shot phone-album             # Albums -> first 
 tap 324 $TAB_Y 3; shot phone-songs                            # Songs
 tap 1006 281 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, closed by a tap outside
 tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
+# Songs: long press picks a song (the "Add to Playlist…" bar appears above
+# the list and moves the rows down), Back lets it go again. Then swipes:
+# right = play next, left = end of the queue, each with a short bubble.
+adb shell input swipe 500 423 500 423 900; sleep 1; shot phone-songs-picked
+check "long press picks a song" logged "songs: 1 picked"
+tap 733 260 2; shot phone-songs-add-to-playlist; tap 300 1900 1
+adb shell input keyevent KEYCODE_BACK; sleep 1
+adb shell input swipe 150 281 850 281 250; sleep 0.3; shot phone-songs-swiped-right
+check "swipe right plays next" logged "songs: swiped right"
+sleep 2
+adb shell input swipe 850 423 150 423 250; sleep 0.3; shot phone-songs-swiped-left
+check "swipe left adds to the end" logged "songs: swiped left"
+sleep 1
 tap 540 $TAB_Y 8; shot phone-radio                            # Radio
 tap 584 252 1; tap 775 252 1; tap 938 252 8                  # filters: Hungary + Pop + Rock at once
 shot phone-radio-filters

@@ -1,6 +1,7 @@
 // The content pages: albums, album detail, artists, songs, radio, queue.
 
 import { ListView, ScrollView } from "std-widgets.slint";
+import { ListView as SwipeListView } from "swipe-list.slint";
 import { Theme } from "theme.slint";
 import {
     ServerItem, PodcastItem, EpisodeItem,
@@ -183,26 +184,204 @@ export component TrackRow inherits Rectangle {
     /// Every second row gets a subtle stripe (Apple Music style).
     in property <bool> striped: false;
     in property <bool> show-menu: true;
+    /// Songs page: long press picks the row, swiping sideways queues it.
+    in property <bool> gestures: false;
+    /// Songs are picked: a tap picks or lets go instead of playing.
+    in property <bool> picking: false;
     callback activated;
     /// "…" button pressed; position (window coordinates) for the menu.
     callback menu(length, length);
+    /// Long press, or a tap while picking.
+    callback toggle-selected;
+    /// Swiped far enough: true to the right (play next), false to the left
+    /// (end of the queue).
+    callback swiped(bool);
+    /// A sideways swipe started (true) or ended (false).
+    callback swiping(bool);
 
     /// "Cozy" rows are a desktop choice; phones always get the taller rows.
     property <bool> cozy: Theme.compact && !Theme.phone;
 
+    // Gesture state.
+    property <length> drag-x: 0px;
+    property <bool> following: true;   // drag-x follows the finger (no animation)
+    property <bool> holding: false;    // waiting to see if this is a long press
+    property <bool> sideways: false;   // this press became a sideways swipe
+    property <bool> long-pressed: false;
+    property <bool> swiped-away: false;  // the press ended as a swipe: no tap
+    property <bool> faded: false;      // content hidden after flying out
+    property <length> swipe-limit: Math.min(110px, root.width * 0.3);
+
+    function finish-swipe() {
+        root.holding = false;
+        if (!root.sideways) { return; }
+        root.sideways = false;
+        root.swiped-away = true;
+        root.following = false;
+        if (Math.abs(root.drag-x / 1px) >= root.swipe-limit / 1px) {
+            // Far enough: the row flies out, then comes back in.
+            root.swiped(root.drag-x > 0);
+            root.drag-x = root.drag-x > 0 ? root.width : -root.width;
+            fly-timer.running = true;
+        } else {
+            root.drag-x = 0px;
+        }
+        root.swiping(false);
+    }
+
     height: Theme.phone ? 54px : root.cozy ? 30px : 46px;
     border-radius: root.cozy ? 4px : 6px;
-    background: root.current ? Theme.accent-soft
+    clip: root.gestures;
+    background: root.item.selected ? (Theme.dark ? #8f72ff55 : #6a46f540)
+        : root.current ? Theme.accent-soft
         : touch.has-hover ? Theme.surface-hover
         : root.striped ? (Theme.dark ? #ffffff0a : #0000000a)
         : transparent;
+    animate background { duration: 120ms; }
+
+    // What the swipe will do, shown in the space the row slides away from.
+    if root.gestures && root.drag-x > 0px: Rectangle {
+        x: 0;
+        width: root.drag-x;
+        clip: true;
+        border-radius: parent.border-radius;
+        background: Theme.accent;
+        opacity: Math.min(1, root.drag-x / root.swipe-limit);
+        HorizontalLayout {
+            x: 0;
+            width: Math.max(root.drag-x, self.preferred-width);
+            padding-left: 16px;
+            spacing: 8px;
+            alignment: start;
+            Image {
+                source: @image-url("icons/next.svg");
+                width: 18px;
+                height: 18px;
+                y: (parent.height - self.height) / 2;
+                colorize: Theme.on-accent;
+            }
+            Text {
+                text: "Play next";
+                color: Theme.on-accent;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+    }
+    if root.gestures && root.drag-x < 0px: Rectangle {
+        x: root.width + root.drag-x;
+        width: -root.drag-x;
+        clip: true;
+        border-radius: parent.border-radius;
+        background: Theme.dark ? #3a3a48 : #4a4a58;
+        opacity: Math.min(1, -root.drag-x / root.swipe-limit);
+        HorizontalLayout {
+            x: parent.width - self.width;
+            width: Math.max(-root.drag-x, self.preferred-width);
+            padding-right: 16px;
+            spacing: 8px;
+            alignment: end;
+            Text {
+                text: "Add to queue";
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            Image {
+                source: @image-url("icons/queue.svg");
+                width: 18px;
+                height: 18px;
+                y: (parent.height - self.height) / 2;
+                colorize: #ffffff;
+            }
+        }
+    }
+
+    hold-timer := Timer {
+        interval: 450ms;
+        running: root.holding;
+        triggered => {
+            root.holding = false;
+            root.long-pressed = true;
+            root.toggle-selected();
+        }
+    }
+    fly-timer := Timer {
+        interval: 200ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            // Back to its place, hidden, then it fades in.
+            root.following = true;
+            root.faded = true;
+            root.drag-x = 0px;
+            fade-timer.running = true;
+        }
+    }
+    fade-timer := Timer {
+        interval: 40ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.faded = false;
+        }
+    }
 
     touch := TouchArea {
         mouse-cursor: pointer;
-        clicked => { root.activated(); }
+        clicked => {
+            // A release after a swipe or a long press is not a tap (the
+            // tap may arrive before or after the release event).
+            if (root.gestures && (root.long-pressed || root.sideways || root.swiped-away)) { return; }
+            if (root.gestures && root.picking) {
+                root.toggle-selected();
+                return;
+            }
+            root.activated();
+        }
+        pointer-event(event) => {
+            if (!root.gestures) { return; }
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.long-pressed = false;
+                root.sideways = false;
+                root.swiped-away = false;
+                root.following = true;
+                root.holding = true;
+            }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.finish-swipe();
+            }
+        }
+        moved => {
+            if (!root.gestures || !self.pressed) { return; }
+            if (Math.abs((self.mouse-x - self.pressed-x) / 1px) > 10 || Math.abs((self.mouse-y - self.pressed-y) / 1px) > 10) {
+                root.holding = false;
+            }
+            if (!root.sideways && !root.long-pressed
+                && Math.abs((self.mouse-x - self.pressed-x) / 1px) > 12
+                && Math.abs((self.mouse-x - self.pressed-x) / 1px) > 1.5 * Math.abs((self.mouse-y - self.pressed-y) / 1px)) {
+                root.sideways = true;
+                root.swiping(true);
+            }
+            if (root.sideways) {
+                root.drag-x = Math.max(-root.width * 0.6, Math.min(root.width * 0.6, self.mouse-x - self.pressed-x));
+            }
+        }
+        changed pressed => {
+            // Taken over by scrolling, or the pointer left the window.
+            if (!self.pressed) { root.finish-swipe(); }
+        }
     }
 
-    HorizontalLayout {
+    content := HorizontalLayout {
+        x: root.drag-x;
+        width: root.width;
+        height: root.height;
+        opacity: root.faded ? 0 : 1;
+        animate x { duration: root.following ? 0ms : 180ms; easing: ease-out; }
+        animate opacity { duration: root.faded ? 0ms : 220ms; }
         padding-left: Theme.phone ? 4px : 12px;
         padding-right: Theme.phone ? 4px : 20px;
         spacing: Theme.phone ? 10px : 16px;
@@ -482,8 +661,20 @@ export component SongsPage inherits Rectangle {
     in property <[TrackItem]> songs;
     in property <string> current-key;
     in property <bool> searching;
+    /// How many songs are picked (long press).
+    in property <int> selection-count: 0;
     callback play-song(int);
     callback track-menu(int, length, length);
+    callback toggle-selected(int);
+    callback clear-selection();
+    /// "Add to Playlist…" for the picked songs; position for the menu.
+    callback selection-menu(length, length);
+    /// A row was swiped (true: right). Returns what to show in the bubble.
+    callback song-swiped(int, bool) -> string;
+
+    property <bool> row-swiping: false;
+    property <string> bubble-text;
+    property <bool> bubble-on: false;
 
     if root.songs.length == 0: EmptyState {
         width: parent.width;
@@ -497,14 +688,92 @@ export component SongsPage inherits Rectangle {
         height: parent.height;
         padding-left: Theme.phone ? 4px : 12px;
         padding-right: Theme.phone ? 4px : 12px;
-        ListView {
+        // Picked songs: what can be done with them.
+        if root.selection-count > 0: HorizontalLayout {
+            padding-left: Theme.phone ? 8px : 4px;
+            padding-right: Theme.phone ? 4px : 4px;
+            padding-bottom: 6px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: root.selection-count == 1 ? "1 song picked" : root.selection-count + " songs picked";
+                color: Theme.fg-muted;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            add-button := PillButton {
+                text: "Add to Playlist…";
+                icon: @image-url("icons/playlist.svg");
+                primary: true;
+                clicked => { root.selection-menu(self.absolute-position.x + self.width, self.absolute-position.y + self.height); }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: @image-url("icons/close.svg");
+                    size: 36px;
+                    icon-size: 16px;
+                    tint: Theme.fg-muted;
+                    clicked => { root.clear-selection(); }
+                }
+            }
+        }
+        SwipeListView {
+            interactive: !root.row-swiping;
             for song[i] in root.songs: TrackRow {
                 item: song;
                 striped: Math.mod(i, 2) == 1;
                 current: song.key == root.current-key;
+                gestures: true;
+                picking: root.selection-count > 0;
                 activated => { root.play-song(i); }
                 menu(x, y) => { root.track-menu(i, x, y); }
+                toggle-selected => { root.toggle-selected(i); }
+                swiping(on) => { root.row-swiping = on; }
+                swiped(right) => {
+                    root.bubble-text = root.song-swiped(i, right);
+                    if (root.bubble-text != "") {
+                        root.bubble-on = true;
+                        bubble-timer.running = true;
+                        bubble-timer.restart();
+                    }
+                }
             }
+        }
+    }
+
+    // What a swipe did: pops up, then fades within about a second.
+    bubble-timer := Timer {
+        interval: 600ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.bubble-on = false;
+        }
+    }
+    if root.bubble-text != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 20px;
+        width: Math.min(parent.width - 32px, bubble-label.preferred-width + 36px);
+        height: 38px;
+        border-radius: 19px;
+        background: Theme.dark ? #2d2d38 : #1f1f26;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000040;
+        opacity: root.bubble-on ? 1 : 0;
+        animate opacity { duration: root.bubble-on ? 100ms : 400ms; easing: ease-in; }
+        bubble-label := Text {
+            x: 18px;
+            width: parent.width - 36px;
+            height: parent.height;
+            text: root.bubble-text;
+            color: #ffffff;
+            font-size: 13px;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            overflow: elide;
         }
     }
 }
