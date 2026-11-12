@@ -108,10 +108,15 @@ tap 1006 281 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, clos
 tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
 tap 540 $TAB_Y 8; shot phone-radio                            # Radio
 tap 756 $TAB_Y 5; shot phone-podcasts                         # Podcasts
-tap 972 $TAB_Y 3; shot phone-more                             # More
-tap 211 1087 3; shot phone-queue                              # More -> Queue
-tap 972 $TAB_Y 2; tap 211 492 3; shot phone-artists           # More -> Artists
-tap 972 $TAB_Y 2; tap 989 1860 3; shot phone-settings         # More -> Settings
+# "More" opens a menu above its tab: Library (y 1620), Listen (1746),
+# Playlists (1872), and the theme switch with Settings (991, 2035).
+tap 972 $TAB_Y 2; shot phone-more                             # More: its menu
+tap 700 1746 3; shot phone-more-listen                        # -> Listen
+tap 211 533 3; shot phone-queue                               # Listen -> Queue
+tap 972 $TAB_Y 2; tap 700 1620 3; shot phone-more-library     # More -> Library
+tap 211 407 3; shot phone-artists                             # Library -> Artists
+tap 972 $TAB_Y 2; tap 700 1872 3; shot phone-more-playlists   # More -> Playlists
+tap 972 $TAB_Y 2; tap 991 2035 3; shot phone-settings         # More -> Settings
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
 tap 224 1485 3; shot phone-add-server                         # Settings -> Add server
