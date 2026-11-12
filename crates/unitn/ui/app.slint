@@ -2097,17 +2097,34 @@ export component AppWindow inherits Window {
         opacity: root.intro-fading ? 0 : 1;
         animate opacity { duration: 450ms; easing: ease-in-out; }
         // The frames are 16:9 with the logo and "Unitn Music" spanning
-        // about 1400 of the 1920 px. Fill the window like `cover`, but never
+        // about 1270 of the 1920 px (1400 keeps it whole, 1600 in portrait
+        // also leaves a margin). Fill the window like `cover`, but never
         // so large that the wordmark is cut off: on a portrait phone the
         // frame is sized to the width and the background fills above/below.
         // Any window wider than about 1.3:1 (every desktop) looks as before.
-        Image {
-            width: min(max(parent.width, parent.height * 16 / 9), parent.width * 1920 / 1400);
+        intro-image := Image {
+            width: min(max(parent.width, parent.height * 16 / 9), parent.width * 1920 / (parent.width < parent.height ? 1600 : 1400));
             height: min(parent.height, self.width * 9 / 16);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             source: root.intro-frame;
             image-fit: cover;
+        }
+        // When the frame is shorter than the window, blend its top and
+        // bottom edges into the background instead of showing a band.
+        if intro-image.height < root.height: Rectangle {
+            x: intro-image.x;
+            y: intro-image.y;
+            width: intro-image.width;
+            height: intro-image.height * 0.25;
+            background: @linear-gradient(180deg, #0C091E 0%, #0C091E00 100%);
+        }
+        if intro-image.height < root.height: Rectangle {
+            x: intro-image.x;
+            y: intro-image.y + intro-image.height * 0.75;
+            width: intro-image.width;
+            height: intro-image.height * 0.25;
+            background: @linear-gradient(0deg, #0C091E 0%, #0C091E00 100%);
         }
         TouchArea {
             mouse-cursor: pointer;
