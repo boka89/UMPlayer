@@ -3126,7 +3126,7 @@ impl App {
     // Podcasts
     // ------------------------------------------------------------------
 
-    fn podcast_item(&mut self, show: &Show, cover: &Option<PathBuf>, info: String, subscribed: bool) -> PodcastItem {
+    fn podcast_item(&mut self, show: &Show, cover: &Option<PathBuf>, info: String, subscribed: bool, favorite: bool) -> PodcastItem {
         let (image, has_image) = self.cover(cover);
         PodcastItem {
             title: show.title.as_str().into(),
@@ -3135,6 +3135,7 @@ impl App {
             image,
             has_image,
             subscribed,
+            favorite,
         }
     }
 
@@ -3148,7 +3149,7 @@ impl App {
                     0 => String::new(),
                     n => plural(n, "unplayed episode", "unplayed episodes"),
                 };
-                self.podcast_item(&p.show, &p.cover, info, true)
+                self.podcast_item(&p.show, &p.cover, info, true, p.favorite)
             })
             .collect();
         if let Some(ui) = self.ui() {
@@ -3163,7 +3164,7 @@ impl App {
             .iter()
             .map(|s| {
                 let subscribed = self.podcasts.iter().any(|p| p.show.feed_url == s.feed_url);
-                self.podcast_item(s, &None, s.description.clone(), subscribed)
+                self.podcast_item(s, &None, s.description.clone(), subscribed, false)
             })
             .collect();
         if let Some(ui) = self.ui() {
@@ -3276,11 +3277,38 @@ impl App {
             ui.set_podcast_description(p.show.description.as_str().into());
             ui.set_podcast_image(image);
             ui.set_podcast_has_image(has_image);
+            ui.set_podcast_favorite(p.favorite);
             ui.set_podcast_view(1);
         }
         self.set_podcast_status(false, "");
         self.reload_episodes();
         self.podcast_refresh();
+    }
+
+    /// Marks a show in the list as a favourite (or not); favourites are listed first.
+    pub fn podcast_toggle_favorite(&mut self, index: usize) {
+        let Some(p) = self.podcasts.get(index).cloned() else { return };
+        self.set_podcast_favorite(&p.show.feed_url, !p.favorite);
+    }
+
+    /// Same, for the show that is open.
+    pub fn podcast_toggle_show_favorite(&mut self) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        let Some(p) = self.podcasts.iter().find(|p| p.show.feed_url == feed) else { return };
+        let favorite = !p.favorite;
+        self.set_podcast_favorite(&feed, favorite);
+    }
+
+    fn set_podcast_favorite(&mut self, feed: &str, favorite: bool) {
+        if let Err(e) = self.library.set_podcast_favorite(feed, favorite) {
+            return self.show_toast(&format!("Could not update favorites: {e}"));
+        }
+        self.refresh_podcasts();
+        if self.podcast_feed.as_deref() == Some(feed) {
+            if let Some(ui) = self.ui() {
+                ui.set_podcast_favorite(favorite);
+            }
+        }
     }
 
     pub fn podcast_back(&mut self) {
@@ -3533,6 +3561,8 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_podcast_refresh, |a| a.podcast_refresh());
     on!(on_podcast_unsubscribe, |a| a.podcast_unsubscribe());
     on!(on_podcast_play, |a, i| a.podcast_play(i.max(0) as usize));
+    on!(on_podcast_toggle_favorite, |a, i| a.podcast_toggle_favorite(i.max(0) as usize));
+    on!(on_podcast_toggle_show_favorite, |a| a.podcast_toggle_show_favorite());
     on!(on_fix_search, |a, artist, album| a.fix_search(artist.to_string(), album.to_string()));
     on!(on_fix_select, |a, i| a.fix_select(i.max(0) as usize));
     on!(on_fix_save, |a, artist, album| a.fix_save(artist.to_string(), album.to_string()));
