@@ -2093,11 +2093,19 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         background: #0C091E;
+        clip: true;
         opacity: root.intro-fading ? 0 : 1;
         animate opacity { duration: 450ms; easing: ease-in-out; }
+        // The frames are 16:9 with the logo and "Unitn Music" spanning
+        // about 1400 of the 1920 px. Fill the window like `cover`, but never
+        // so large that the wordmark is cut off: on a portrait phone the
+        // frame is sized to the width and the background fills above/below.
+        // Any window wider than about 1.3:1 (every desktop) looks as before.
         Image {
-            width: parent.width;
-            height: parent.height;
+            width: min(max(parent.width, parent.height * 16 / 9), parent.width * 1920 / 1400);
+            height: min(parent.height, self.width * 9 / 16);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
             source: root.intro-frame;
             image-fit: cover;
         }
