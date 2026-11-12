@@ -74,6 +74,9 @@ export component AppWindow inherits Window {
     }
     /// Phone: the search box is shown instead of the page title.
     property <bool> search-open: false;
+    /// Phone: the part of the "More" page that is shown (page 11):
+    /// 0 Library, 1 Listen, 2 Playlists. Picked in the "More" menu.
+    property <int> more-section: 0;
     /// Phone: which bottom tab is lit (-1: none).
     property <int> active-tab: (root.page == 0 || (root.page == 5 && !root.album-from-server)) ? 0
         : root.page == 2 ? 1
@@ -315,6 +318,7 @@ export component AppWindow inherits Window {
     /// there is nowhere to go back to (the app then goes to the background).
     public function go-back() -> bool {
         track-menu.close();
+        more-menu.close();
         add-stream-popup.close();
         if (root.viz-fullscreen) {
             root.viz-fullscreen = false;
@@ -406,10 +410,10 @@ export component AppWindow inherits Window {
             HorizontalLayout {
 
                 // ---------------- Sidebar ----------------
-                // On a phone it is the "More" page and fills the screen.
+                // Not on a phone: there the "More" menu and page take its place.
                 Rectangle {
-                    width: root.phone ? (root.page == 11 ? content-area.width : 0px) : 232px;
-                    visible: !root.phone || root.page == 11;
+                    width: root.phone ? 0px : 232px;
+                    visible: !root.phone;
                     clip: true;
                     background: Theme.sidebar.transparentize(Theme.see-through);
                     VerticalLayout {
@@ -904,6 +908,180 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            // ---------------- Phone: the "More" page ----------------
+            // Shows the one part picked in the "More" menu, scrollable.
+            if root.phone && root.page == 11: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                background: Theme.sidebar;
+                TouchArea { }   // nothing underneath takes the taps
+                VerticalLayout {
+                    HorizontalLayout {
+                        height: 56px + root.titlebar-inset;
+                        padding-top: root.titlebar-inset;
+                        padding-left: 16px;
+                        padding-right: 12px;
+                        spacing: 6px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.more-section == 0 ? "Library"
+                                : root.more-section == 1 ? "Listen"
+                                : "Playlists";
+                            color: Theme.fg;
+                            font-size: 21px;
+                            font-weight: 800;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if root.more-section == 2: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/import.svg");
+                                size: 40px;
+                                icon-size: 19px;
+                                tint: Theme.fg-muted;
+                                clicked => { root.import-playlist(); }
+                            }
+                        }
+                        if root.more-section == 2: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/plus.svg");
+                                size: 40px;
+                                icon-size: 20px;
+                                tint: Theme.fg-muted;
+                                clicked => {
+                                    root.new-playlist();
+                                    root.page = 8;
+                                }
+                            }
+                        }
+                    }
+                    more-flick := Flickable {
+                        vertical-stretch: 1;
+                        content-height: Math.max(self.height, more-list.preferred-height);
+                        more-list := VerticalLayout {
+                            width: more-flick.width;
+                            alignment: start;
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 4px;
+                            padding-bottom: 24px;
+                            spacing: 2px;
+
+                            // Library
+                            if root.more-section == 0: VerticalLayout {
+                                spacing: 2px;
+                                NavItem {
+                                    icon: @image-url("icons/album.svg");
+                                    label: "Albums";
+                                    clicked => {
+                                        if (root.albums-filtered) { root.show-all-albums(); }
+                                        root.page = 0;
+                                    }
+                                }
+                                NavItem {
+                                    icon: @image-url("icons/artist.svg");
+                                    label: "Artists";
+                                    clicked => { root.page = 1; }
+                                }
+                                NavItem {
+                                    icon: @image-url("icons/song.svg");
+                                    label: "Songs";
+                                    clicked => { root.page = 2; }
+                                }
+                                if root.servers.length > 0: Text {
+                                    height: 34px;
+                                    vertical-alignment: center;
+                                    text: "SERVERS";
+                                    color: Theme.fg-muted;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 1.2px;
+                                }
+                                for server[i] in root.servers: NavItem {
+                                    icon: @image-url("icons/server.svg");
+                                    label: server.name;
+                                    clicked => {
+                                        root.open-server(i);
+                                        root.page = 9;
+                                    }
+                                }
+                                Rectangle { height: 16px; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    PillButton {
+                                        horizontal-stretch: 1;
+                                        text: Theme.mobile ? "Find my music" : "Add folder";
+                                        icon: Theme.mobile ? @image-url("icons/search.svg") : @image-url("icons/plus.svg");
+                                        clicked => { root.add-folder(); }
+                                    }
+                                    IconButton {
+                                        icon: @image-url("icons/refresh.svg");
+                                        size: 38px;
+                                        icon-size: 18px;
+                                        enabled: !root.scanning;
+                                        clicked => { root.rescan(); }
+                                    }
+                                }
+                                if root.library-status != "": Text {
+                                    text: root.library-status;
+                                    color: Theme.fg-muted;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // Listen
+                            if root.more-section == 1: VerticalLayout {
+                                spacing: 2px;
+                                NavItem {
+                                    icon: @image-url("icons/radio.svg");
+                                    label: "Radio";
+                                    clicked => { root.page = 3; }
+                                }
+                                NavItem {
+                                    icon: @image-url("icons/podcast.svg");
+                                    label: "Podcasts";
+                                    clicked => { root.page = 10; }
+                                }
+                                NavItem {
+                                    icon: @image-url("icons/queue.svg");
+                                    label: "Queue";
+                                    clicked => { root.page = 4; }
+                                }
+                                NavItem {
+                                    icon: @image-url("icons/visualizer.svg");
+                                    label: "Now Playing";
+                                    clicked => { root.page = 6; }
+                                }
+                            }
+
+                            // Playlists
+                            if root.more-section == 2: VerticalLayout {
+                                spacing: 2px;
+                                for pl[i] in root.playlists: NavItem {
+                                    icon: @image-url("icons/playlist.svg");
+                                    label: pl.name;
+                                    clicked => {
+                                        root.open-playlist(i);
+                                        root.page = 8;
+                                    }
+                                }
+                                if root.playlists.length == 0: Text {
+                                    text: "No playlists yet. Tap + to make one, or import an M3U playlist.";
+                                    color: Theme.fg-muted;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             }
 
             // ---------------- Now playing bar ----------------
@@ -1116,6 +1294,11 @@ export component AppWindow inherits Window {
                         }
                         TouchArea {
                             clicked => {
+                                // "More" opens its menu: Library, Listen, Playlists.
+                                if (tab.page == 11) {
+                                    more-menu.show();
+                                    return;
+                                }
                                 if (tab.page == 0 && root.albums-filtered) { root.show-all-albums(); }
                                 root.page = tab.page;
                             }
@@ -1289,6 +1472,65 @@ export component AppWindow inherits Window {
                                     root.volume-changed(v);
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- Phone: the "More" menu ----------------
+    // Opens above the "More" tab; picking a part shows it on the "More" page.
+    more-menu := PopupWindow {
+        width: 248px;
+        height: more-box.preferred-height;
+        x: root.width - root.safe-area-insets.right - self.width - 8px;
+        y: root.height - root.safe-area-insets.bottom - 58px - self.height - 8px;
+        more-box := Rectangle {
+            border-radius: 14px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+                for part[i] in [
+                    { icon: @image-url("icons/album.svg"), label: "Library" },
+                    { icon: @image-url("icons/radio.svg"), label: "Listen" },
+                    { icon: @image-url("icons/playlist.svg"), label: "Playlists" },
+                ]: NavItem {
+                    icon: part.icon;
+                    label: part.label;
+                    selected: root.page == 11 && root.more-section == i;
+                    clicked => {
+                        root.more-section = i;
+                        root.page = 11;
+                        more-menu.close();
+                    }
+                }
+                Rectangle { height: 6px; }
+                Rectangle { height: 1px; background: Theme.border; }
+                Rectangle { height: 6px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    ThemeSwitch {
+                        horizontal-stretch: 1;
+                        selected(mode) => {
+                            root.apply-theme(mode);
+                            root.theme-selected(mode);
+                        }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/settings.svg");
+                        size: 36px;
+                        icon-size: 18px;
+                        active: root.page == 7;
+                        tint: Theme.fg-muted;
+                        clicked => {
+                            root.page = 7;
+                            more-menu.close();
                         }
                     }
                 }
