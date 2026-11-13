@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::Result;
 use lofty::prelude::*;
@@ -59,9 +59,20 @@ pub fn audio_files_in(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Most tracks written in one go while scanning.
+const WRITE_BATCH: usize = 100;
+/// Longest time read tags wait before they are written.
+const WRITE_EVERY: Duration = Duration::from_millis(500);
+
 /// Incrementally scans `folders`: unchanged files (same mtime) are skipped,
 /// changed/new files are re-read, missing files are dropped from the index.
 /// `progress` is called every few files with the number of files seen.
+///
+/// Files are read with no database lock held: reading tags can take seconds
+/// per file (e.g. cloud-only files that have to be downloaded first), and a
+/// write lock held meanwhile would make every other write in the app (a
+/// like, a playlist change) wait and fail with "database is locked". Read
+/// tracks are written in short batches instead.
 pub fn scan(
     lib: &Library,
     folders: &[PathBuf],
@@ -72,64 +83,61 @@ pub fn scan(
     let known = lib.track_mtimes()?;
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut stats = ScanStats::default();
+    let mut pending: Vec<(Track, i64)> = Vec::new();
+    let mut last_write = Instant::now();
 
-    lib.begin()?;
-    let result = (|| -> Result<()> {
-        for folder in folders {
-            for entry in WalkDir::new(folder).follow_links(true).into_iter().filter_map(|e| e.ok()) {
-                if !entry.file_type().is_file() || !is_audio(entry.path()) {
-                    continue;
-                }
-                let path = entry.path().to_path_buf();
-                stats.scanned += 1;
-                if stats.scanned % 25 == 0 {
-                    progress(stats.scanned);
-                }
-                let mtime = entry
-                    .metadata()
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                let unchanged = known.get(&path) == Some(&mtime);
-                seen.insert(path.clone());
-                if unchanged {
-                    continue;
-                }
-                let track = read_track(&path, cover_dir);
-                lib.upsert_track(&track, mtime)?;
-                stats.updated += 1;
-                if stats.updated % 200 == 0 {
-                    lib.commit()?;
-                    lib.begin()?;
-                }
-            }
-        }
-        for path in known.keys() {
-            if seen.contains(path) {
+    for folder in folders {
+        for entry in WalkDir::new(folder).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+            if !entry.file_type().is_file() || !is_audio(entry.path()) {
                 continue;
             }
-            let in_library = folders.iter().any(|f| path.starts_with(f));
-            if !in_library || !path.exists() {
-                lib.delete_track(path)?;
-                stats.removed += 1;
+            let path = entry.path().to_path_buf();
+            stats.scanned += 1;
+            if stats.scanned % 25 == 0 {
+                progress(stats.scanned);
+            }
+            let mtime = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let unchanged = known.get(&path) == Some(&mtime);
+            seen.insert(path.clone());
+            if unchanged {
+                continue;
+            }
+            pending.push((read_track(&path, cover_dir), mtime));
+            stats.updated += 1;
+            if pending.len() >= WRITE_BATCH || last_write.elapsed() >= WRITE_EVERY {
+                write_tracks(lib, &pending)?;
+                pending.clear();
+                last_write = Instant::now();
             }
         }
-        Ok(())
-    })();
-
-    match result {
-        Ok(()) => {
-            lib.commit()?;
-            progress(stats.scanned);
-            Ok(stats)
-        }
-        Err(e) => {
-            lib.rollback();
-            Err(e)
-        }
     }
+    write_tracks(lib, &pending)?;
+
+    let gone: Vec<&PathBuf> = known
+        .keys()
+        .filter(|path| !seen.contains(*path))
+        .filter(|path| !folders.iter().any(|f| path.starts_with(f)) || !path.exists())
+        .collect();
+    if !gone.is_empty() {
+        lib.write(|lib| gone.iter().try_for_each(|path| lib.delete_track(path)))?;
+        stats.removed = gone.len();
+    }
+    progress(stats.scanned);
+    Ok(stats)
+}
+
+/// Stores read tracks in one short write transaction.
+fn write_tracks(lib: &Library, tracks: &[(Track, i64)]) -> Result<()> {
+    if tracks.is_empty() {
+        return Ok(());
+    }
+    lib.write(|lib| tracks.iter().try_for_each(|(t, mtime)| lib.upsert_track(t, *mtime)))
 }
 
 /// Reads tags (and embedded cover art) of one file. Never fails: files with
@@ -247,6 +255,31 @@ mod tests {
         let stats = scan(&lib, &folders, &root.join("covers"), |_| {}).unwrap();
         assert_eq!(stats.removed, 1);
         assert_eq!(lib.track_count().unwrap(), 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Other connections can write while a scan is reading files (a like
+    /// during a scan used to wait for the scan and fail "database is locked").
+    #[test]
+    fn scan_lets_others_write_meanwhile() {
+        let root = std::env::temp_dir().join(format!("unitn-scan-lock-{}", std::process::id()));
+        let music = root.join("music");
+        fs::create_dir_all(&music).unwrap();
+        for i in 0..30 {
+            fs::write(music.join(format!("{i:02}.wav")), crate::audio::test_wav(8000, 0.05)).unwrap();
+        }
+        let db = root.join("lib.sqlite3");
+        let lib = Library::open(&db).unwrap();
+        let other = Library::open(&db).unwrap();
+        let mut wrote = None;
+        scan(&lib, &[music], &root.join("covers"), |n| {
+            if n == 25 && wrote.is_none() {
+                wrote = Some(other.create_playlist("Likes").map_err(|e| e.to_string()));
+            }
+        })
+        .unwrap();
+        assert!(matches!(wrote, Some(Ok(_))), "write during scan failed: {wrote:?}");
+        assert_eq!(lib.track_count().unwrap(), 30);
         let _ = fs::remove_dir_all(&root);
     }
 }
