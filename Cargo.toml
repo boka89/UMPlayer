@@ -5,7 +5,7 @@ members = ["crates/unitn-core", "crates/unitn"]
 exclude = ["crates/unitn-android"]
 
 [workspace.package]
-version = "0.5.13"
+version = "0.6.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/boka89/Unitn"
