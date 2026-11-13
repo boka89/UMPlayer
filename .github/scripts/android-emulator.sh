@@ -119,6 +119,10 @@ adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell input swipe 150 281 850 281 250; sleep 0.3; shot phone-songs-swiped-right
 check "swipe right plays next" logged "songs: swiped right"
 sleep 2
+# Halfway through a left swipe (finger still down): the label behind the row.
+adb shell input motionevent DOWN 850 565; adb shell input motionevent MOVE 700 565
+adb shell input motionevent MOVE 500 565; sleep 0.5; shot phone-songs-swiping-left
+adb shell input motionevent MOVE 900 565; adb shell input motionevent UP 900 565; sleep 1
 adb shell input swipe 850 423 150 423 250; sleep 0.3; shot phone-songs-swiped-left
 check "swipe left adds to the end" logged "songs: swiped left"
 sleep 1
