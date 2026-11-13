@@ -11,7 +11,7 @@ homepage = "https://github.com/boka89/Unitn"
 [dependencies]
 unitn-core = { path = "../unitn-core" }
 anyhow = "1"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 directories = "5"
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }

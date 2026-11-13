@@ -134,7 +134,12 @@ fn run() -> Result<()> {
         media_rx,
     )));
     app::connect(&ui, &app);
-    app.borrow_mut().start();
+    // Load the library once the event loop runs, so the window (or the
+    // startup animation) shows right away.
+    {
+        let app = app.clone();
+        Timer::single_shot(Duration::ZERO, move || app.borrow_mut().start());
+    }
 
     // Test hook: UNITN_AUTOPLAY="<file or URL>|<file or URL>|…" plays each
     // target for a few seconds in turn.

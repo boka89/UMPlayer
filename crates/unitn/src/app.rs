@@ -44,6 +44,10 @@ const RADIO_TAB_OTHER: i32 = -1;
 /// Results of background work, delivered to the UI thread.
 enum Bg {
     ScanProgress(usize),
+    /// Album covers made small enough for lists, decoded off the UI thread.
+    Thumbs(Vec<(PathBuf, Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>>)>),
+    /// The cover thread finished its list.
+    ThumbsDone,
     ScanDone(Result<scanner::ScanStats, String>),
     Stations { request: u64, result: Result<Vec<Station>, String> },
     /// A cover was downloaded for an album.
@@ -124,6 +128,15 @@ enum StationQuery {
 enum Item {
     Track(Track),
     Station(Station),
+}
+
+/// Loads a cover and shrinks it to list size (at most 400 px, enough for the
+/// 200 px album page cover on high-DPI screens). Runs on the cover thread.
+fn decode_thumb(path: &Path) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+    let img = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.decode().ok()?;
+    let img = if img.width() > 400 || img.height() > 400 { img.thumbnail(400, 400) } else { img };
+    let rgba = img.to_rgba8();
+    Some(slint::SharedPixelBuffer::clone_from_slice(rgba.as_raw(), rgba.width(), rgba.height()))
 }
 
 /// A podcast episode (its path is a made-up "podcast://…" key).
@@ -351,6 +364,12 @@ pub struct App {
 
     last_viz_style: i32,
     artist_image_pending: HashSet<String>,
+    /// Small album covers for the album grid and album page.
+    thumbs: HashMap<PathBuf, Option<Image>>,
+    /// Covers waiting for the cover thread, and whether it runs.
+    thumb_queue: Vec<PathBuf>,
+    thumb_queued: HashSet<PathBuf>,
+    thumbs_loading: bool,
     playlists: Vec<Playlist>,
     current_playlist: Option<usize>,
     playlist_tracks: Vec<Track>,
@@ -462,6 +481,10 @@ impl App {
             viz_idle: false,
             last_viz_style: -1,
             artist_image_pending: HashSet::new(),
+            thumbs: HashMap::new(),
+            thumb_queue: Vec::new(),
+            thumb_queued: HashSet::new(),
+            thumbs_loading: false,
             playlists: Vec::new(),
             current_playlist: None,
             playlist_tracks: Vec::new(),
@@ -528,7 +551,9 @@ impl App {
             }
         }
 
+        let t = std::time::Instant::now();
         self.reload_library();
+        log(format!("startup: library shown in {} ms", t.elapsed().as_millis()));
         self.refresh_folders();
         self.refresh_playlists();
         self.refresh_servers();
@@ -538,6 +563,7 @@ impl App {
         self.refresh_now_playing();
         self.refresh_position();
         self.start_scan();
+        log(format!("startup: ready in {} ms", t.elapsed().as_millis()));
     }
 
     pub fn set_media(&mut self, media: Media) {
@@ -805,6 +831,11 @@ impl App {
 
     fn on_background(&mut self, job: Bg) {
         match job {
+            Bg::Thumbs(done) => self.on_thumbs(done),
+            Bg::ThumbsDone => {
+                self.thumbs_loading = false;
+                self.load_thumbs();
+            }
             Bg::ScanProgress(n) => {
                 if let Some(ui) = self.ui() {
                     ui.set_library_status(format!("Scanning… {} found", plural(n, "file", "files")).into());
@@ -1015,8 +1046,77 @@ impl App {
         }
     }
 
+    /// An album cover for lists. Decoding big covers takes long, so ones not
+    /// loaded yet are handed to the cover thread and show up when ready.
+    fn thumb(&mut self, path: &Option<PathBuf>) -> (Image, bool) {
+        let Some(path) = path else { return (Image::default(), false) };
+        match self.thumbs.get(path) {
+            Some(Some(img)) => (img.clone(), true),
+            Some(None) => (Image::default(), false),
+            None => {
+                if self.thumb_queued.insert(path.clone()) {
+                    self.thumb_queue.push(path.clone());
+                }
+                (Image::default(), false)
+            }
+        }
+    }
+
+    /// Starts the cover thread for the covers waiting, if it isn't running.
+    fn load_thumbs(&mut self) {
+        if self.thumbs_loading || self.thumb_queue.is_empty() {
+            return;
+        }
+        self.thumbs_loading = true;
+        let paths = std::mem::take(&mut self.thumb_queue);
+        let tx = self.bg_tx.clone();
+        thread::spawn(move || {
+            for chunk in paths.chunks(12) {
+                let done: Vec<_> = chunk.iter().map(|p| (p.clone(), decode_thumb(p))).collect();
+                if tx.send(Bg::Thumbs(done)).is_err() {
+                    return;
+                }
+            }
+            let _ = tx.send(Bg::ThumbsDone);
+        });
+    }
+
+    /// Puts covers from the cover thread into the album grid and album page.
+    fn on_thumbs(&mut self, done: Vec<(PathBuf, Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>>)>) {
+        let mut ready: HashSet<PathBuf> = HashSet::new();
+        for (path, pixels) in done {
+            self.thumb_queued.remove(&path);
+            let img = pixels.map(Image::from_rgba8);
+            if img.is_some() {
+                ready.insert(path.clone());
+            }
+            self.thumbs.insert(path, img);
+        }
+        if ready.is_empty() {
+            return;
+        }
+        let Some(ui) = self.ui() else { return };
+        let model = ui.get_albums();
+        for (i, a) in self.albums.iter().enumerate() {
+            let Some(path) = a.cover.as_ref().filter(|p| ready.contains(*p)) else { continue };
+            if let (Some(mut row), Some(Some(img))) = (model.row_data(i), self.thumbs.get(path)) {
+                row.cover = img.clone();
+                row.has_cover = true;
+                model.set_row_data(i, row);
+            }
+        }
+        if let Some(path) = self.open_album.as_ref().and_then(|a| a.cover.clone()).filter(|p| ready.contains(p)) {
+            if let Some(Some(img)) = self.thumbs.get(&path) {
+                let mut item = ui.get_album();
+                item.cover = img.clone();
+                item.has_cover = true;
+                ui.set_album(item);
+            }
+        }
+    }
+
     fn album_item(&mut self, a: &Album) -> AlbumItem {
-        let (cover, has_cover) = self.cover(&a.cover);
+        let (cover, has_cover) = self.thumb(&a.cover);
         AlbumItem {
             key: album_key(&a.artist, &a.title).into(),
             title: a.title.as_str().into(),
@@ -1075,6 +1175,7 @@ impl App {
             ui.set_albums_filtered(self.artist_filter.is_some());
             ui.set_albums_title(self.artist_filter.clone().unwrap_or_else(|| "Albums".into()).into());
         }
+        self.load_thumbs();
     }
 
     pub fn start_scan(&mut self) {
@@ -1398,6 +1499,7 @@ impl App {
             ui.set_album_info(info.into());
             ui.set_album_tracks(model(tracks));
         }
+        self.load_thumbs();
     }
 
     pub fn open_artist(&mut self, index: usize) {
