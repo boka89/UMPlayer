@@ -26,10 +26,18 @@ jobs:
           - name: Windows
             os: windows-latest
             binary: unitn.exe
-          - name: macOS
+          - name: macOS Apple Silicon
             os: macos-latest
             binary: unitn
+          # Cross-built on the Apple Silicon runner (not run there).
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            binary: unitn
     runs-on: ${{ matrix.os }}
+    env:
+      TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      OUT_DIR_REL: ${{ matrix.target && format('target/{0}/release', matrix.target) || 'target/release' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -53,14 +61,20 @@ jobs:
           exit 1
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: ${{ matrix.name }}
 
       - name: Test core
+        if: ${{ !matrix.target }}
         run: cargo test -p unitn-core --locked
 
       - name: Build release
-        run: cargo build --release --workspace --locked
+        shell: bash
+        run: cargo build --release --workspace --locked $TARGET_FLAG
 
       - name: Radio stream check
         if: runner.os == 'Linux'
@@ -96,7 +110,7 @@ jobs:
         run: .github/scripts/windows-smoke.sh
 
       - name: macOS playback smoke test
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && !matrix.target
         run: .github/scripts/macos-smoke.sh
 
       - name: Screenshots
@@ -136,7 +150,7 @@ jobs:
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" "$target"
 
       - name: Publish macOS window screenshots to the ci-mac-screenshots branch
-        if: runner.os == 'macOS' && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        if: runner.os == 'macOS' && !matrix.target && github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
         run: |
           set -e
           [ -d mac-screenshots ] || exit 0
@@ -154,6 +168,6 @@ jobs:
         with:
           name: unitn-${{ matrix.name }}
           path: |
-            target/release/${{ matrix.binary }}
+            ${{ env.OUT_DIR_REL }}/${{ matrix.binary }}
             Cargo.lock
           if-no-files-found: error
