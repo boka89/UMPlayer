@@ -760,9 +760,9 @@ export component AppWindow inherits Window {
                             text: root.phone && root.page == 0 && !root.albums-filtered ? "Music"
                                 : root.page == 0 ? root.albums-title
                                 : root.phone && (root.page == 1 || root.page == 2) ? "Music"
-                                : root.phone && root.page == 11 && !root.np-group ? "Playlists"
-                                : root.phone && root.page == 8 && !root.np-group ? "Playlist"
-                                : root.np-chips ? "Now Playing"
+                                // Phone: the title follows the selected chip.
+                                : root.phone && root.page == 11 ? "Playlists"
+                                : root.phone && root.page == 12 ? "Sources"
                                 : root.page == 11 ? "Playlists"
                                 : root.page == 1 ? "Artists"
                                 : root.page == 2 ? "Songs"
