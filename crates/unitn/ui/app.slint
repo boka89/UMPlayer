@@ -458,12 +458,6 @@ export component AppWindow inherits Window {
                             selected: root.page == 4;
                             clicked => { root.page = 4; }
                         }
-                        NavItem {
-                            icon: @image-url("icons/visualizer.svg");
-                            label: "Now Playing";
-                            selected: root.page == 6;
-                            clicked => { root.page = 6; }
-                        }
                         if root.servers.length > 0: Rectangle { height: 12px; }
                         if root.servers.length > 0: Text {
                             text: "SERVERS";
