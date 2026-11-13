@@ -1387,8 +1387,21 @@ export component NowPlayingPage inherits Rectangle {
                 primary: !root.covered;
             }
             // The buttons appear when the mouse moves over the card and fade
-            // out when it stops (clicks on the visualizer do nothing).
+            // out when it stops. A double tap likes or unlikes the song.
+            card-tap-timer := Timer {
+                interval: 300ms;
+                running: false;
+                triggered => { self.running = false; }
+            }
             card-idle := IdleArea {
+                clicked => {
+                    if (card-tap-timer.running) {
+                        card-tap-timer.running = false;
+                        if (root.can-like) { root.toggle-like(); }
+                    } else {
+                        card-tap-timer.running = true;
+                    }
+                }
                 keep-x: card-controls.x;
                 keep-y: card-controls.y;
                 keep-width: card-controls.width;
