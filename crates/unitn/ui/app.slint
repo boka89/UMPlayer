@@ -55,34 +55,35 @@ component NextQueueButton inherits Rectangle {
     property <bool> holding: false;
     property <bool> held: false;
 
-    width: 76px;
-    height: 44px;
-    border-radius: 22px;
+    // Nearly round: just wide enough for the icon, "/" and "Q".
+    width: 52px;
+    height: 48px;
+    border-radius: 24px;
     background: touch.pressed ? Theme.accent.darker(0.15) : Theme.accent;
     opacity: root.enabled ? 1.0 : 0.6;
     HorizontalLayout {
         alignment: center;
-        spacing: 3px;
+        spacing: 1px;
         VerticalLayout {
             alignment: center;
             Image {
                 source: @image-url("icons/next.svg");
-                width: 20px;
-                height: 20px;
+                width: 16px;
+                height: 16px;
                 colorize: Theme.on-accent;
             }
         }
         Text {
             text: "/";
             color: Theme.on-accent.transparentize(0.35);
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 400;
             vertical-alignment: center;
         }
         Text {
             text: "Q";
             color: Theme.on-accent;
-            font-size: 17px;
+            font-size: 15px;
             font-weight: 800;
             vertical-alignment: center;
         }
@@ -1239,13 +1240,48 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Phone, on every other page: a small player. The cover plays or
-            // stops, the titles open Now Playing, Next/Q skips (hold: Queue).
+            // Phone, on every other page: a small player. A tap on the cover
+            // or the titles plays or stops; holding them (or swiping up) opens
+            // Now Playing. Next/Q skips (hold: Queue).
             if root.phone && root.page != 6: Rectangle {
+                property <bool> band-holding: false;
+                property <bool> band-held: false;
                 height: 64px;
                 background: Theme.bar;
-                TouchArea {
-                    clicked => { root.page = 6; }
+                band-timer := Timer {
+                    interval: 500ms;
+                    running: parent.band-holding;
+                    triggered => {
+                        parent.band-holding = false;
+                        parent.band-held = true;
+                        root.page = 6;
+                    }
+                }
+                band-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            parent.band-held = false;
+                            parent.band-holding = true;
+                        }
+                        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                            parent.band-holding = false;
+                        }
+                    }
+                    moved => {
+                        if (!self.pressed || parent.band-held) { return; }
+                        if (Math.abs((self.mouse-x - self.pressed-x) / 1px) > 10) { parent.band-holding = false; }
+                        // Swipe up: Now Playing.
+                        if (self.pressed-y - self.mouse-y > 24px) {
+                            parent.band-holding = false;
+                            parent.band-held = true;
+                            root.page = 6;
+                        }
+                    }
+                    clicked => {
+                        if (parent.band-held) { parent.band-held = false; return; }
+                        root.toggle-play();
+                    }
                 }
                 Rectangle {
                     x: 0px;
@@ -1276,7 +1312,7 @@ export component AppWindow inherits Window {
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 16px;
-                                background: art-touch.pressed ? #00000099 : #00000066;
+                                background: band-touch.pressed ? #00000099 : #00000066;
                                 Image {
                                     source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
                                     width: 18px;
@@ -1285,10 +1321,6 @@ export component AppWindow inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     colorize: #ffffff;
                                 }
-                            }
-                            art-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.toggle-play(); }
                             }
                         }
                     }
