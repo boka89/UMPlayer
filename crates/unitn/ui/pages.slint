@@ -274,7 +274,8 @@ export component TrackRow inherits Rectangle {
         width: -root.drag-x;
         clip: true;
         border-radius: parent.border-radius;
-        background: #3b2580; // dark purple (swipe right uses the accent)
+        // Android: dark purple (swipe right uses the accent); the desktop keeps grey.
+        background: Theme.mobile ? #3b2580 : Theme.dark ? #3a3a48 : #4a4a58;
         opacity: Math.min(1, -root.drag-x / root.swipe-limit);
         HorizontalLayout {
             x: parent.width - self.width;
