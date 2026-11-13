@@ -153,7 +153,7 @@ export component AppWindow inherits Window {
         if (root.page != 0 && root.page != 1 && root.page != 2 && root.page != 3 && root.page != 9 && root.page != 10) {
             root.search-open = false;
         }
-        if (root.page == 0 || root.page == 1 || root.page == 2) { root.music-page = root.page; }
+        if (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 12 && root.sources-in-music)) { root.music-page = root.page; }
         if (root.page != 11 && root.page != 8) { root.np-group = false; }
     }
     /// Phone: the search box is shown instead of the page title.
@@ -165,14 +165,17 @@ export component AppWindow inherits Window {
     /// "Playlists" chip, so they show the Now Playing chips.
     property <bool> np-group: false;
     /// Phone: Music, Album or Artist view, with the Song / Album / Artist chips.
-    property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2);
+    property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 12 && root.sources-in-music));
+    /// Phone: Sources (page 12) is shown inside Music (its Sources chip),
+    /// not inside Now Playing.
+    property <bool> sources-in-music: false;
     /// Phone: Now Playing, Queue, Playlists (also from the Playlists tab) or
     /// Sources, with the Player / Queue / Playlists / Sources chips.
-    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || root.page == 12 || root.page == 11 || root.page == 8);
+    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || (root.page == 12 && !root.sources-in-music) || root.page == 11 || root.page == 8);
     /// Phone: a server's albums (page 9) were opened from Sources, not Settings.
     property <bool> server-from-sources: false;
     /// Phone: which bottom tab is lit (-1: none).
-    property <int> active-tab: (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 5 && !root.album-from-server)) ? 0
+    property <int> active-tab: root.music-chips || (root.page == 5 && !root.album-from-server) ? 0
         : root.page == 3 ? 1
         : root.page == 10 ? 2
         : (root.page == 11 || root.page == 8) && !root.np-group ? 3
@@ -448,7 +451,7 @@ export component AppWindow inherits Window {
         // Phone: Music is the first screen; Queue and the Now Playing
         // playlists go back to the player, a playlist to the playlists,
         // a server to Settings, everything else to Music.
-        if (root.page == 0 || root.page == 1 || root.page == 2) { return false; }
+        if (root.music-chips) { return false; }
         if (root.page == 4 || (root.page == 11 && root.np-group)) {
             root.page = 6;
         } else if (root.page == 8) {
@@ -762,6 +765,7 @@ export component AppWindow inherits Window {
                                 : root.phone && (root.page == 1 || root.page == 2) ? "Music"
                                 // Phone: the title follows the selected chip.
                                 : root.phone && root.page == 11 ? "Playlists"
+                                : root.phone && root.page == 12 && root.sources-in-music ? "Music"
                                 : root.phone && root.page == 12 ? "Sources"
                                 : root.page == 11 ? "Playlists"
                                 : root.page == 1 ? "Artists"
@@ -869,6 +873,14 @@ export component AppWindow inherits Window {
                             }
                         }
                         Chip { text: "Artist"; selected: root.page == 1; clicked => { root.page = 1; } }
+                        Chip {
+                            text: "Sources";
+                            selected: root.page == 12;
+                            clicked => {
+                                root.sources-in-music = true;
+                                root.page = 12;
+                            }
+                        }
                     }
                     // Phone: the Now Playing screens.
                     if root.np-chips: HorizontalLayout {
@@ -887,7 +899,14 @@ export component AppWindow inherits Window {
                                 root.page = 11;
                             }
                         }
-                        Chip { text: "Sources"; selected: root.page == 12; clicked => { root.page = 12; } }
+                        Chip {
+                            text: "Sources";
+                            selected: root.page == 12;
+                            clicked => {
+                                root.sources-in-music = false;
+                                root.page = 12;
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -1525,6 +1544,7 @@ export component AppWindow inherits Window {
                                     if (root.active-tab == 0 && root.page == 0 && root.albums-filtered) {
                                         root.show-all-albums();
                                     }
+                                    root.sources-in-music = true;
                                     root.page = root.page == 5 && !root.album-from-server ? 0 : root.music-page;
                                     return;
                                 }
