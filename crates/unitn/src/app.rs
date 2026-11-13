@@ -26,7 +26,7 @@ use unitn_core::util::format_time;
 use crate::media::{Media, MediaCmd};
 use crate::settings::{Paths, Settings};
 use crate::{
-    AlbumItem, AppWindow, ArtistItem, EpisodeItem, FixCandidate, PlaylistItem, PodcastItem, QueueEntry, ServerItem, StationItem,
+    AlbumItem, AppWindow, ArtistItem, Dnd, EpisodeItem, FixCandidate, PlaylistItem, PodcastItem, QueueEntry, ServerItem, StationItem,
     Theme, TrackItem, VizInfo,
 };
 
@@ -124,6 +124,11 @@ enum StationQuery {
 enum Item {
     Track(Track),
     Station(Station),
+}
+
+/// A podcast episode (its path is a made-up "podcast://…" key).
+fn is_episode(t: &Track) -> bool {
+    t.path.to_string_lossy().starts_with("podcast://")
 }
 
 fn track_key(t: &Track) -> String {
@@ -263,6 +268,9 @@ fn long_duration(ms: u64) -> String {
 /// The playlist the Like button on Now Playing fills. Other features
 /// (playing Likes shuffled) look it up by this exact name.
 pub const LIKES_PLAYLIST: &str = "Likes";
+
+/// Marks drag payloads that started in Unitn (see `App::drop_items`).
+pub const DRAG_PREFIX: &str = "unitn:";
 
 pub struct App {
     ui: Weak<AppWindow>,
@@ -1524,6 +1532,10 @@ impl App {
             .iter()
             .filter(|t| t.is_remote())
             .filter_map(|t| {
+                // Podcast episodes: the audio address is public, keep it as is.
+                if is_episode(t) {
+                    return Some((t.clone(), t.stream_url.clone()?));
+                }
                 let cfg = self.settings.servers.iter().find(|c| servers::owns_track(c, &t.path))?;
                 let stream_ref = servers::stream_ref(cfg, t.stream_url.as_deref()?)?;
                 Some((t.clone(), stream_ref))
@@ -1539,6 +1551,10 @@ impl App {
     /// Gives playlist songs from music servers their stream address.
     fn resolve_server_songs(&self, tracks: &mut [Track]) {
         for t in tracks.iter_mut().filter(|t| t.stream_url.is_none()) {
+            if is_episode(t) {
+                t.stream_url = self.library.remote_stream_ref(&t.path).ok().flatten();
+                continue;
+            }
             let Some(cfg) = self.settings.servers.iter().find(|c| servers::owns_track(c, &t.path)) else { continue };
             if let Ok(Some(stream_ref)) = self.library.remote_stream_ref(&t.path) {
                 t.stream_url = Some(servers::stream_url(cfg, &stream_ref));
@@ -2211,6 +2227,12 @@ impl App {
     /// Songs the open menu refers to.
     fn menu_tracks(&self) -> Vec<Track> {
         let (context, index) = self.menu_target;
+        self.list_tracks(context, index)
+    }
+
+    /// Song `index` of a song list (0 album, 1 songs, 2 playlist), or the
+    /// whole open album (3).
+    fn list_tracks(&self, context: i32, index: i32) -> Vec<Track> {
         let pick = |list: &Vec<Track>| list.get(index.max(0) as usize).cloned().into_iter().collect::<Vec<_>>();
         match context {
             0 => pick(&self.album_tracks),
@@ -2228,13 +2250,33 @@ impl App {
             return self.open_fix_dialog();
         }
         let tracks = self.menu_tracks();
+        if action == 4 {
+            let (Some(id), index) = (self.current_playlist_id(), self.menu_target.1) else { return };
+            if let Err(e) = self.library.remove_from_playlist(id, index.max(0) as usize) {
+                self.show_toast(&format!("Could not remove: {e}"));
+            }
+            self.open_playlist_id(id);
+            return;
+        }
+        self.add_tracks(tracks, action, playlist);
+    }
+
+    /// 0 play next, 1 add to the queue, 2 add to playlist `playlist`,
+    /// 3 make a new playlist of them.
+    fn add_tracks(&mut self, tracks: Vec<Track>, action: i32, playlist: i32) {
         if tracks.is_empty() {
             return;
         }
         if matches!(action, 2 | 3) {
             self.remember_server_songs(&tracks);
         }
-        let what = if tracks.len() == 1 { format!("\"{}\"", tracks[0].title) } else { plural(tracks.len(), "song", "songs") };
+        let what = if tracks.len() == 1 {
+            format!("\"{}\"", tracks[0].title)
+        } else if tracks.iter().all(is_episode) {
+            plural(tracks.len(), "episode", "episodes")
+        } else {
+            plural(tracks.len(), "song", "songs")
+        };
         let paths: Vec<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();
         match action {
             0 | 1 => {
@@ -2278,14 +2320,62 @@ impl App {
                     self.show_toast(&format!("Created \"{name}\" with {what}"));
                 }
             }
-            4 => {
-                let (Some(id), index) = (self.current_playlist_id(), self.menu_target.1) else { return };
-                if let Err(e) = self.library.remove_from_playlist(id, index.max(0) as usize) {
-                    self.show_toast(&format!("Could not remove: {e}"));
-                }
-                self.open_playlist_id(id);
-            }
             _ => {}
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Drag and drop (desktop): songs, albums, artists and podcasts dragged
+    // onto a sidebar playlist or the queue. A drag carries
+    // "unitn:<what>", where <what> is set in the UI (see Dnd in widgets.slint).
+    // ------------------------------------------------------------------
+
+    /// The songs (or podcast episodes) a drag carries.
+    fn dragged_tracks(&mut self, what: &str) -> Vec<Track> {
+        let parts: Vec<&str> = what.split(':').collect();
+        let num = |i: usize| parts.get(i).and_then(|p| p.parse::<i32>().ok()).unwrap_or(-1);
+        match parts.first().copied().unwrap_or("") {
+            "song" => self.list_tracks(num(1), num(2)),
+            "album" => {
+                let Some(album) = self.albums.get(num(1).max(0) as usize) else { return Vec::new() };
+                self.library.album_tracks(&album.artist, &album.title).unwrap_or_default()
+            }
+            "artist" => {
+                let Some(artist) = self.artists.get(num(1).max(0) as usize) else { return Vec::new() };
+                let albums = self.library.albums(Some(&artist.name)).unwrap_or_default();
+                albums.iter().flat_map(|a| self.library.album_tracks(&a.artist, &a.title).unwrap_or_default()).collect()
+            }
+            "show" => {
+                // A whole show: its unplayed episodes, newest first (as listed).
+                let Some(feed) = self.podcasts.get(num(1).max(0) as usize).map(|p| p.show.feed_url.clone()) else {
+                    return Vec::new();
+                };
+                let episodes = self.library.episodes(&feed).unwrap_or_default();
+                episodes.iter().filter(|e| !e.played).take(50).filter_map(|e| self.episode_track(&feed, e)).collect()
+            }
+            "episode" => {
+                let Some(feed) = self.podcast_feed.clone() else { return Vec::new() };
+                let Some(state) = self.podcast_episodes.get(num(1).max(0) as usize).cloned() else { return Vec::new() };
+                self.episode_track(&feed, &state).into_iter().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Something was dropped on the queue (-1), the "new playlist" button
+    /// (-2) or sidebar playlist `target`.
+    pub fn drop_items(&mut self, payload: &str, target: i32) {
+        let Some(what) = payload.strip_prefix(DRAG_PREFIX) else { return };
+        let tracks = self.dragged_tracks(what);
+        log(format!("ui: dragged {what} ({} songs) to {target}", tracks.len()));
+        if tracks.is_empty() {
+            self.show_toast("Nothing to add");
+            return;
+        }
+        match target {
+            -1 => self.add_tracks(tracks, 1, -1),
+            -2 => self.add_tracks(tracks, 3, -1),
+            i => self.add_tracks(tracks, 2, i),
         }
     }
 
@@ -3410,13 +3500,11 @@ impl App {
         self.podcast_back();
     }
 
-    pub fn podcast_play(&mut self, index: usize) {
-        let Some(feed) = self.podcast_feed.clone() else { return };
-        let Some(state) = self.podcast_episodes.get(index).cloned() else { return };
-        let Some(show) = self.podcasts.iter().find(|p| p.show.feed_url == feed).cloned() else { return };
+    /// A podcast episode as something the player (and playlists) can take.
+    fn episode_track(&mut self, feed: &str, state: &EpisodeState) -> Option<Track> {
+        let show = self.podcasts.iter().find(|p| p.show.feed_url == feed)?;
         let ep = &state.episode;
-        let key = Self::episode_key(&feed, &ep.guid);
-        self.episode_keys.insert(key.clone(), (feed.clone(), ep.guid.clone()));
+        let key = Self::episode_key(feed, &ep.guid);
         let track = Track {
             path: key.clone(),
             title: ep.title.clone(),
@@ -3429,6 +3517,15 @@ impl App {
             stream_ext: ep.extension(),
             ..Default::default()
         };
+        self.episode_keys.insert(key, (feed.to_string(), ep.guid.clone()));
+        Some(track)
+    }
+
+    pub fn podcast_play(&mut self, index: usize) {
+        let Some(feed) = self.podcast_feed.clone() else { return };
+        let Some(state) = self.podcast_episodes.get(index).cloned() else { return };
+        let Some(track) = self.episode_track(&feed, &state) else { return };
+        let key = track.path.clone();
         // Continue where it was left (unless it was finished).
         self.resume_at = (!state.played && state.position > 10.0).then(|| (key, state.position));
         self.episode_saved_at = if self.resume_at.is_some() { state.position } else { 0.0 };
@@ -3494,6 +3591,20 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
             let app = app.clone();
             ui.$setter(move |$($arg),*| with(&app, |$a| $body));
         }};
+    }
+
+    // Drag and drop inside the window (songs etc. onto playlists and the queue).
+    let dnd = ui.global::<Dnd>();
+    dnd.on_payload(|what| slint::DataTransfer::from(SharedString::from(format!("{DRAG_PREFIX}{what}"))));
+    dnd.on_ours(|data| data.plain_text().is_ok_and(|t| t.starts_with(DRAG_PREFIX)));
+    {
+        let app = app.clone();
+        dnd.on_dropped(move |data, target| {
+            let Ok(text) = data.plain_text() else { return };
+            // Later, so the drag has fully ended before lists are rebuilt.
+            let app = app.clone();
+            slint::Timer::single_shot(Duration::ZERO, move || with(&app, |a| a.drop_items(&text, target)));
+        });
     }
 
     on!(on_open_album, |a, i| a.open_album(i.max(0) as usize));

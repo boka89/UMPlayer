@@ -5,7 +5,7 @@ import { Theme } from "theme.slint";
 import {
     ServerItem, PodcastItem, EpisodeItem,
     AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, TextField,
-    IconButton, PillButton, Chip, Artwork, Spectrum, SeekBar, Visualizer, EqPanel, VizControls, IdleArea,
+    IconButton, PillButton, Chip, Artwork, DragSource, Spectrum, SeekBar, Visualizer, EqPanel, VizControls, IdleArea,
 } from "widgets.slint";
 
 component EmptyState inherits VerticalLayout {
@@ -55,6 +55,8 @@ component EmptyState inherits VerticalLayout {
 component AlbumCard inherits Rectangle {
     in property <AlbumItem> item;
     in property <bool> playing;
+    /// What a drag of the card carries (see Dnd.payload); "" = not draggable.
+    in property <string> drag-what;
     callback clicked;
 
     width: 176px;
@@ -113,9 +115,14 @@ component AlbumCard inherits Rectangle {
         }
     }
 
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+    DragSource {
+        enabled: root.drag-what != "";
+        what: root.drag-what;
+        kind: "album";
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.clicked(); }
+        }
     }
 }
 
@@ -150,6 +157,7 @@ export component AlbumsPage inherits Rectangle {
             y: 8px + Math.floor(i / root.cols) * root.cell-h;
             item: album;
             playing: album.key != "" && album.key == root.playing-album;
+            drag-what: "album:" + i;
             clicked => { root.open-album(i); }
         }
     }
@@ -171,6 +179,8 @@ export component TrackRow inherits Rectangle {
     /// Every second row gets a subtle stripe (Apple Music style).
     in property <bool> striped: false;
     in property <bool> show-menu: true;
+    /// What a drag of the row carries (see Dnd.payload); "" = not draggable.
+    in property <string> drag-what;
     callback activated;
     /// "…" button pressed; position (window coordinates) for the menu.
     callback menu(length, length);
@@ -182,9 +192,13 @@ export component TrackRow inherits Rectangle {
         : root.striped ? (Theme.dark ? #ffffff0a : #0000000a)
         : transparent;
 
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.activated(); }
+    DragSource {
+        enabled: root.drag-what != "";
+        what: root.drag-what;
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.activated(); }
+        }
     }
 
     HorizontalLayout {
@@ -292,10 +306,20 @@ export component AlbumDetailPage inherits Rectangle {
         spacing: 20px;
         HorizontalLayout {
             spacing: 24px;
-            Artwork {
-                size: 200px;
-                source: root.album.cover;
-                has-image: root.album.has-cover;
+            // Drag the cover to add the whole album.
+            Rectangle {
+                width: 200px;
+                height: 200px;
+                Artwork {
+                    size: 200px;
+                    source: root.album.cover;
+                    has-image: root.album.has-cover;
+                }
+                DragSource {
+                    what: "song:3:0";
+                    kind: "album";
+                    TouchArea { mouse-cursor: grab; }
+                }
             }
             VerticalLayout {
                 alignment: end;
@@ -361,6 +385,7 @@ export component AlbumDetailPage inherits Rectangle {
                 show-album: false;
                 striped: Math.mod(i, 2) == 1;
                 current: track.key == root.current-key;
+                drag-what: "song:0:" + i;
                 activated => { root.play-track(i); }
                 menu(x, y) => { root.track-menu(i, x, y); }
             }
@@ -386,9 +411,13 @@ export component ArtistsPage inherits Rectangle {
             height: 60px;
             border-radius: 8px;
             background: touch.has-hover ? Theme.surface : transparent;
-            touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.open-artist(i); }
+            DragSource {
+                what: "artist:" + i;
+                kind: "artist";
+                touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.open-artist(i); }
+                }
             }
             HorizontalLayout {
                 padding-left: 20px;
@@ -458,6 +487,7 @@ export component SongsPage inherits Rectangle {
                 item: song;
                 striped: Math.mod(i, 2) == 1;
                 current: song.key == root.current-key;
+                drag-what: "song:1:" + i;
                 activated => { root.play-song(i); }
                 menu(x, y) => { root.track-menu(i, x, y); }
             }
@@ -1585,7 +1615,7 @@ export component PlaylistPage inherits Rectangle {
             vertical-stretch: 1;
             icon: @image-url("icons/playlist.svg");
             title: "This playlist is empty";
-            message: "Use the … button next to any song or album to add it here.";
+            message: "Use the … button next to any song or album, or drag songs, albums, artists or podcasts onto this playlist in the sidebar.";
         }
         if root.tracks.length > 0: ListView {
             vertical-stretch: 1;
@@ -1593,6 +1623,7 @@ export component PlaylistPage inherits Rectangle {
                 item: track;
                 striped: Math.mod(i, 2) == 1;
                 current: track.key == root.current-key;
+                drag-what: "song:2:" + i;
                 activated => { root.play-track(i); }
                 menu(x, y) => { root.track-menu(i, x, y); }
             }
@@ -1605,6 +1636,8 @@ component PodcastRow inherits Rectangle {
     in property <PodcastItem> item;
     in property <bool> show-subscribe;
     in property <bool> show-favorite;
+    /// What a drag of the row carries (see Dnd.payload); "" = not draggable.
+    in property <string> drag-what;
     callback clicked();
     callback subscribe();
     callback toggle-favorite();
@@ -1612,9 +1645,14 @@ component PodcastRow inherits Rectangle {
     height: 72px;
     border-radius: 8px;
     background: touch.has-hover ? Theme.surface : transparent;
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+    DragSource {
+        enabled: root.drag-what != "";
+        what: root.drag-what;
+        kind: "podcast";
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.clicked(); }
+        }
     }
     HorizontalLayout {
         padding-left: 12px;
@@ -1745,6 +1783,7 @@ export component PodcastsPage inherits Rectangle {
                     item: show;
                     show-subscribe: false;
                     show-favorite: true;
+                    drag-what: "show:" + i;
                     clicked => { root.open-show(i); }
                     toggle-favorite => { root.toggle-favorite(i); }
                 }
@@ -1844,9 +1883,13 @@ export component PodcastsPage inherits Rectangle {
                     height: 58px;
                     border-radius: 8px;
                     background: row.current ? Theme.accent-soft : (touch.has-hover ? Theme.surface : transparent);
-                    touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.play-episode(i); }
+                    DragSource {
+                        what: "episode:" + i;
+                        kind: "podcast";
+                        touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.play-episode(i); }
+                        }
                     }
                     HorizontalLayout {
                         padding-left: 12px;

@@ -5,11 +5,11 @@ import { Theme } from "theme.slint";
 import {
     AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, MenuRow, FixCandidate, ServerItem, Chip,
     PodcastItem, EpisodeItem,
-    IconButton, PillButton, NavItem, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls, BrandMark, IdleArea,
+    IconButton, PillButton, NavItem, Dnd, DropTarget, SeekBar, SearchBox, Artwork, Spectrum, Visualizer, VizInfo, TextField, VizControls, BrandMark, IdleArea,
 } from "widgets.slint";
 import { AlbumsPage, AlbumDetailPage, ArtistsPage, SongsPage, RadioPage, QueuePage, NowPlayingPage, SettingsPage, PlaylistPage, ServerPage, PodcastsPage } from "pages.slint";
 
-export { Theme, VizInfo, AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, FixCandidate, ServerItem, PodcastItem, EpisodeItem }
+export { Theme, Dnd, VizInfo, AlbumItem, TrackItem, ArtistItem, StationItem, QueueEntry, PlaylistItem, FixCandidate, ServerItem, PodcastItem, EpisodeItem }
 
 component ThemeSwitch inherits Rectangle {
     callback selected(int);
@@ -456,7 +456,9 @@ export component AppWindow inherits Window {
                             icon: @image-url("icons/queue.svg");
                             label: "Queue";
                             selected: root.page == 4;
+                            drop-target: true;
                             clicked => { root.page = 4; }
+                            dropped(data) => { Dnd.dropped(data, -1); }
                         }
                         if root.servers.length > 0: Rectangle { height: 12px; }
                         if root.servers.length > 0: Text {
@@ -493,14 +495,26 @@ export component AppWindow inherits Window {
                                 tint: Theme.fg-muted;
                                 clicked => { root.import-playlist(); }
                             }
-                            IconButton {
-                                icon: @image-url("icons/plus.svg");
-                                size: 26px;
-                                icon-size: 16px;
-                                tint: Theme.fg-muted;
-                                clicked => {
-                                    root.new-playlist();
-                                    root.page = 8;
+                            // Dropping songs here makes a new playlist of them.
+                            Rectangle {
+                                width: 26px;
+                                height: 26px;
+                                border-radius: 13px;
+                                background: new-drop.hot ? Theme.accent-soft : transparent;
+                                border-width: Dnd.active ? 1px : 0px;
+                                border-color: new-drop.hot ? Theme.accent : Theme.accent.transparentize(0.6);
+                                new-drop := DropTarget {
+                                    accepted(data) => { Dnd.dropped(data, -2); }
+                                }
+                                IconButton {
+                                    icon: @image-url("icons/plus.svg");
+                                    size: 26px;
+                                    icon-size: 16px;
+                                    tint: new-drop.hot ? Theme.accent : Theme.fg-muted;
+                                    clicked => {
+                                        root.new-playlist();
+                                        root.page = 8;
+                                    }
                                 }
                             }
                         }
@@ -519,10 +533,12 @@ export component AppWindow inherits Window {
                                     icon: @image-url("icons/playlist.svg");
                                     label: pl.name;
                                     selected: root.page == 8 && root.current-playlist == i;
+                                    drop-target: true;
                                     clicked => {
                                         root.open-playlist(i);
                                         root.page = 8;
                                     }
+                                    dropped(data) => { Dnd.dropped(data, i); }
                                 }
                             }
                         }
@@ -913,7 +929,9 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         alignment: center;
                         spacing: 4px;
-                        HorizontalLayout {
+                        Rectangle {
+                        height: transport.preferred-height;
+                        transport := HorizontalLayout {
                             alignment: center;
                             spacing: 10px;
                             VerticalLayout {
@@ -961,6 +979,19 @@ export component AppWindow inherits Window {
                                     clicked => { root.cycle-repeat(); }
                                 }
                             }
+                        }
+                        // Like, above the end of the track length (songs only,
+                        // not radio or podcasts). Same as the heart on Now Playing.
+                        if root.np-can-like: IconButton {
+                            x: parent.width - 52px;
+                            y: parent.height - self.height;
+                            icon: root.np-liked ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+                            size: 30px;
+                            icon-size: 17px;
+                            active: root.np-liked;
+                            tint: Theme.fg-muted;
+                            clicked => { root.toggle-like(); }
+                        }
                         }
                         HorizontalLayout {
                             spacing: 10px;
