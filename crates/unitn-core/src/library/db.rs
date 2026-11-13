@@ -267,18 +267,25 @@ impl Library {
         Ok(Self { conn })
     }
 
-    pub(crate) fn begin(&self) -> Result<()> {
-        self.conn.execute_batch("BEGIN")?;
-        Ok(())
-    }
-
-    pub(crate) fn commit(&self) -> Result<()> {
-        self.conn.execute_batch("COMMIT")?;
-        Ok(())
-    }
-
-    pub(crate) fn rollback(&self) {
-        let _ = self.conn.execute_batch("ROLLBACK");
+    /// Runs `f` in one write transaction, committed if it succeeds and
+    /// rolled back if not. The write lock is taken up front (IMMEDIATE), so
+    /// the transaction never has to upgrade a read snapshot to a write,
+    /// which SQLite refuses without waiting once another connection wrote.
+    pub(crate) fn write<T>(&self, f: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        match f(self) {
+            Ok(v) => match self.conn.execute_batch("COMMIT") {
+                Ok(()) => Ok(v),
+                Err(e) => {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    Err(e.into())
+                }
+            },
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
     }
 
     // ---- folders -------------------------------------------------------
@@ -814,7 +821,7 @@ impl Library {
         year: u32,
         cover: Option<&Path>,
     ) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)?;
         // Albums that were already corrected into this one keep pointing at it.
         let mut origins: Vec<(String, String, u32, Option<String>)> = {
             let mut st = tx.prepare("SELECT orig_artist, orig_album, year, cover FROM album_fixes WHERE artist = ?1 AND album = ?2")?;
