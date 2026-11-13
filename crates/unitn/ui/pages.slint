@@ -1536,6 +1536,8 @@ export component SettingsPage inherits Rectangle {
     in property <[ServerItem]> servers;
     callback add-server();
     callback remove-server(int);
+    /// Phone: a tap on a server opens its albums (the desktop has them in the sidebar).
+    callback open-server(int);
 
     scroll := ScrollView {
         width: parent.width;
@@ -1733,6 +1735,10 @@ export component SettingsPage inherits Rectangle {
                     height: 44px;
                     border-radius: 8px;
                     background: Theme.surface-hover;
+                    TouchArea {
+                        enabled: Theme.phone;
+                        clicked => { root.open-server(i); }
+                    }
                     HorizontalLayout {
                         padding-left: 12px;
                         padding-right: 4px;

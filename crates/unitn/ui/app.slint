@@ -46,6 +46,74 @@ component ThemeSwitch inherits Rectangle {
     }
 }
 
+/// Phone player bar: one button for "next song" (tap) and "queue" (hold),
+/// drawn as the next icon and a "Q" on the purple play-button color.
+component NextQueueButton inherits Rectangle {
+    in property <bool> enabled: true;
+    callback next();
+    callback open-queue();
+    property <bool> holding: false;
+    property <bool> held: false;
+
+    width: 76px;
+    height: 44px;
+    border-radius: 22px;
+    background: touch.pressed ? Theme.accent.darker(0.15) : Theme.accent;
+    opacity: root.enabled ? 1.0 : 0.6;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 3px;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("icons/next.svg");
+                width: 20px;
+                height: 20px;
+                colorize: Theme.on-accent;
+            }
+        }
+        Text {
+            text: "/";
+            color: Theme.on-accent.transparentize(0.35);
+            font-size: 16px;
+            font-weight: 400;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "Q";
+            color: Theme.on-accent;
+            font-size: 17px;
+            font-weight: 800;
+            vertical-alignment: center;
+        }
+    }
+    hold-timer := Timer {
+        interval: 500ms;
+        running: root.holding;
+        triggered => {
+            root.holding = false;
+            root.held = true;
+            root.open-queue();
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.held = false;
+                root.holding = true;
+            }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.holding = false;
+            }
+        }
+        clicked => {
+            if (root.held) { root.held = false; return; }
+            if (root.enabled) { root.next(); }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Unitn player";
     icon: @image-url("../icons/256x256.png");
@@ -60,29 +128,50 @@ export component AppWindow inherits Window {
     /// Space for the macOS window buttons (the title bar is drawn by us there).
     in property <length> titlebar-inset: 0px;
 
-    /// Phone-sized window: the sidebar becomes the "More" page (page 11),
-    /// tabs sit at the bottom and the player bar is compact.
+    /// Phone-sized window: no sidebar; five tabs sit at the bottom (Music,
+    /// Radio, Podcasts, Playlists, Settings) and the player bar is compact.
+    /// Page 11 is the phone's list of playlists.
     property <bool> phone: root.width < 720px || root.height < 520px;
     changed phone => {
         Theme.phone = root.phone;
         if (!root.phone && root.page == 11) { root.page = 0; }
     }
+    /// The Android app on a phone (the desktop starts on Albums as before).
+    property <bool> mobile-phone: Theme.mobile && root.phone;
+    changed mobile-phone => { root.start-on-phone(); }
+    /// A phone starts on Music in its Song view (once).
+    function start-on-phone() {
+        if (root.mobile-phone && !root.phone-started) {
+            root.phone-started = true;
+            if (root.page == 0 && !root.albums-filtered) { root.page = 2; }
+        }
+    }
+    property <bool> phone-started: false;
     changed page => {
         if (root.page != 0 && root.page != 1 && root.page != 2 && root.page != 3 && root.page != 9 && root.page != 10) {
             root.search-open = false;
         }
+        if (root.page == 0 || root.page == 1 || root.page == 2) { root.music-page = root.page; }
+        if (root.page != 11 && root.page != 8) { root.np-group = false; }
     }
     /// Phone: the search box is shown instead of the page title.
     property <bool> search-open: false;
-    /// Phone: the part of the "More" page that is shown (page 11):
-    /// 0 Library, 1 Listen, 2 Playlists. Picked in the "More" menu.
-    property <int> more-section: 0;
+    /// Phone: the Music view last shown (0 albums, 1 artists, 2 songs);
+    /// the Music tab opens it again.
+    property <int> music-page: 2;
+    /// Phone: the playlists (page 11) were opened from Now Playing's
+    /// "Playlists" chip, so they show the Now Playing chips.
+    property <bool> np-group: false;
+    /// Phone: Music, Album or Artist view, with the Song / Album / Artist chips.
+    property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2);
+    /// Phone: Now Playing, Queue or Playlists, with the Player / Queue / Playlists chips.
+    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || (root.page == 11 && root.np-group));
     /// Phone: which bottom tab is lit (-1: none).
-    property <int> active-tab: (root.page == 0 || (root.page == 5 && !root.album-from-server)) ? 0
-        : root.page == 2 ? 1
-        : root.page == 3 ? 2
-        : root.page == 10 ? 3
-        : root.page == 6 ? -1
+    property <int> active-tab: (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 5 && !root.album-from-server)) ? 0
+        : root.page == 3 ? 1
+        : root.page == 10 ? 2
+        : root.np-chips || root.page == 6 ? -1
+        : (root.page == 11 || root.page == 8) ? 3
         : 4;
 
     // Pages: 0 albums, 1 artists, 2 songs, 3 radio, 4 queue, 5 album detail, 6 now playing, 7 settings, 8 playlist
@@ -333,7 +422,6 @@ export component AppWindow inherits Window {
     /// there is nowhere to go back to (the app then goes to the background).
     public function go-back() -> bool {
         track-menu.close();
-        more-menu.close();
         add-stream-popup.close();
         if (root.viz-fullscreen) {
             root.viz-fullscreen = false;
@@ -347,9 +435,24 @@ export component AppWindow inherits Window {
         if (root.page == 5) { root.page = root.album-from-server ? 9 : 0; return true; }
         if (root.page == 10 && root.podcast-view == 1) { root.podcast-back(); return true; }
         if (root.page == 0 && root.albums-filtered) { root.show-all-albums(); return true; }
-        if (root.page == 0) { return false; }
-        // Pages opened from "More" go back to it; the tabs go back to Albums.
-        root.page = (root.phone && root.page != 11 && root.active-tab == 4) ? 11 : 0;
+        if (!root.phone) {
+            if (root.page == 0) { return false; }
+            root.page = 0;
+            return true;
+        }
+        // Phone: Music is the first screen; Queue and the Now Playing
+        // playlists go back to the player, a playlist to the playlists,
+        // a server to Settings, everything else to Music.
+        if (root.page == 0 || root.page == 1 || root.page == 2) { return false; }
+        if (root.page == 4 || (root.page == 11 && root.np-group)) {
+            root.page = 6;
+        } else if (root.page == 8) {
+            root.page = 11;
+        } else if (root.page == 9) {
+            root.page = 7;
+        } else {
+            root.page = root.music-page;
+        }
         return true;
     }
 
@@ -374,6 +477,7 @@ export component AppWindow inherits Window {
     init => {
         Theme.system-dark = Palette.color-scheme != ColorScheme.light;
         Theme.phone = root.phone;
+        root.start-on-phone();
     }
 
     // Keyboard shortcuts (keys typed into text fields are handled there first).
@@ -646,7 +750,11 @@ export component AppWindow inherits Window {
                         if !(root.phone && root.search-open): Text {
                             horizontal-stretch: 1;
                             min-width: 0px;
-                            text: root.page == 0 ? root.albums-title
+                            text: root.phone && root.page == 0 && !root.albums-filtered ? "Music"
+                                : root.page == 0 ? root.albums-title
+                                : root.phone && (root.page == 1 || root.page == 2) ? "Music"
+                                : root.np-chips ? "Now Playing"
+                                : root.page == 11 ? "Playlists"
                                 : root.page == 1 ? "Artists"
                                 : root.page == 2 ? "Songs"
                                 : root.page == 3 ? "Radio"
@@ -664,7 +772,7 @@ export component AppWindow inherits Window {
                             overflow: elide;
                         }
                         // Phone: a search button that swaps the title for the search box.
-                        if root.phone && !root.search-open && root.page != 6 && root.page != 7 && root.page != 4 && root.page != 8 && root.page != 5: VerticalLayout {
+                        if root.phone && !root.search-open && root.page != 6 && root.page != 7 && root.page != 4 && root.page != 8 && root.page != 5 && root.page != 11: VerticalLayout {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("icons/search.svg");
@@ -697,6 +805,30 @@ export component AppWindow inherits Window {
                                 escaped => { keys.focus(); }
                             }
                         }
+                        // Phone playlists: import an M3U file, or make a new playlist.
+                        if root.phone && root.page == 11: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/import.svg");
+                                size: 40px;
+                                icon-size: 19px;
+                                tint: Theme.fg-muted;
+                                clicked => { root.import-playlist(); }
+                            }
+                        }
+                        if root.phone && root.page == 11: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("icons/plus.svg");
+                                size: 40px;
+                                icon-size: 20px;
+                                tint: Theme.fg-muted;
+                                clicked => {
+                                    root.new-playlist();
+                                    root.page = 8;
+                                }
+                            }
+                        }
                         if root.phone && root.search-open: VerticalLayout {
                             alignment: center;
                             IconButton {
@@ -711,8 +843,74 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    // Phone: Music views, like the Radio filter chips.
+                    if root.music-chips: HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-bottom: 12px;
+                        spacing: 8px;
+                        alignment: start;
+                        Chip { text: "Song"; selected: root.page == 2; clicked => { root.page = 2; } }
+                        Chip {
+                            text: "Album";
+                            selected: root.page == 0;
+                            clicked => {
+                                if (root.albums-filtered) { root.show-all-albums(); }
+                                root.page = 0;
+                            }
+                        }
+                        Chip { text: "Artist"; selected: root.page == 1; clicked => { root.page = 1; } }
+                    }
+                    // Phone: the Now Playing screens.
+                    if root.np-chips: HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-bottom: 12px;
+                        spacing: 8px;
+                        alignment: start;
+                        Chip { text: "Player"; selected: root.page == 6; clicked => { root.page = 6; } }
+                        Chip { text: "Queue"; selected: root.page == 4; clicked => { root.page = 4; } }
+                        Chip {
+                            text: "Playlists";
+                            selected: root.page == 11;
+                            clicked => {
+                                root.np-group = true;
+                                root.page = 11;
+                            }
+                        }
+                    }
+
                     Rectangle {
                         vertical-stretch: 1;
+                        // Phone: the playlists.
+                        if root.phone && root.page == 11: phone-pl-flick := Flickable {
+                            width: parent.width;
+                            height: parent.height;
+                            content-height: Math.max(self.height, phone-pl-list.preferred-height);
+                            phone-pl-list := VerticalLayout {
+                                width: phone-pl-flick.width;
+                                alignment: start;
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 4px;
+                                padding-bottom: 24px;
+                                spacing: 2px;
+                                for pl[i] in root.playlists: NavItem {
+                                    icon: @image-url("icons/playlist.svg");
+                                    label: pl.name;
+                                    clicked => {
+                                        root.open-playlist(i);
+                                        root.page = 8;
+                                    }
+                                }
+                                if root.playlists.length == 0: Text {
+                                    text: "No playlists yet. Tap + to make one, or import an M3U playlist.";
+                                    color: Theme.fg-muted;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
                         if root.page == 0: AlbumsPage {
                             width: parent.width;
                             height: parent.height;
@@ -896,6 +1094,10 @@ export component AppWindow inherits Window {
                                 root.server-dialog = true;
                             }
                             remove-server(i) => { root.remove-server(i); }
+                            open-server(i) => {
+                                root.open-server(i);
+                                root.page = 9;
+                            }
                             download-art-changed(on) => {
                                 root.download-art = on;
                                 root.download-art-changed(on);
@@ -935,180 +1137,6 @@ export component AppWindow inherits Window {
                             clear => { root.clear-queue(); }
                         save-as-playlist => { root.save-queue-as-playlist(); }
                         move-index(from, to) => { root.move-queue-index(from, to); }
-                        }
-                    }
-                }
-            }
-
-            // ---------------- Phone: the "More" page ----------------
-            // Shows the one part picked in the "More" menu, scrollable.
-            if root.phone && root.page == 11: Rectangle {
-                x: 0px;
-                y: 0px;
-                width: parent.width;
-                height: parent.height;
-                background: Theme.sidebar;
-                TouchArea { }   // nothing underneath takes the taps
-                VerticalLayout {
-                    HorizontalLayout {
-                        height: 56px + root.titlebar-inset;
-                        padding-top: root.titlebar-inset;
-                        padding-left: 16px;
-                        padding-right: 12px;
-                        spacing: 6px;
-                        Text {
-                            horizontal-stretch: 1;
-                            text: root.more-section == 0 ? "Library"
-                                : root.more-section == 1 ? "Listen"
-                                : "Playlists";
-                            color: Theme.fg;
-                            font-size: 21px;
-                            font-weight: 800;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        if root.more-section == 2: VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: @image-url("icons/import.svg");
-                                size: 40px;
-                                icon-size: 19px;
-                                tint: Theme.fg-muted;
-                                clicked => { root.import-playlist(); }
-                            }
-                        }
-                        if root.more-section == 2: VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: @image-url("icons/plus.svg");
-                                size: 40px;
-                                icon-size: 20px;
-                                tint: Theme.fg-muted;
-                                clicked => {
-                                    root.new-playlist();
-                                    root.page = 8;
-                                }
-                            }
-                        }
-                    }
-                    more-flick := Flickable {
-                        vertical-stretch: 1;
-                        content-height: Math.max(self.height, more-list.preferred-height);
-                        more-list := VerticalLayout {
-                            width: more-flick.width;
-                            alignment: start;
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            padding-top: 4px;
-                            padding-bottom: 24px;
-                            spacing: 2px;
-
-                            // Library
-                            if root.more-section == 0: VerticalLayout {
-                                spacing: 2px;
-                                NavItem {
-                                    icon: @image-url("icons/album.svg");
-                                    label: "Albums";
-                                    clicked => {
-                                        if (root.albums-filtered) { root.show-all-albums(); }
-                                        root.page = 0;
-                                    }
-                                }
-                                NavItem {
-                                    icon: @image-url("icons/artist.svg");
-                                    label: "Artists";
-                                    clicked => { root.page = 1; }
-                                }
-                                NavItem {
-                                    icon: @image-url("icons/song.svg");
-                                    label: "Songs";
-                                    clicked => { root.page = 2; }
-                                }
-                                if root.servers.length > 0: Text {
-                                    height: 34px;
-                                    vertical-alignment: center;
-                                    text: "SERVERS";
-                                    color: Theme.fg-muted;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                    letter-spacing: 1.2px;
-                                }
-                                for server[i] in root.servers: NavItem {
-                                    icon: @image-url("icons/server.svg");
-                                    label: server.name;
-                                    clicked => {
-                                        root.open-server(i);
-                                        root.page = 9;
-                                    }
-                                }
-                                Rectangle { height: 16px; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    PillButton {
-                                        horizontal-stretch: 1;
-                                        text: Theme.mobile ? "Find my music" : "Add folder";
-                                        icon: Theme.mobile ? @image-url("icons/search.svg") : @image-url("icons/plus.svg");
-                                        clicked => { root.add-folder(); }
-                                    }
-                                    IconButton {
-                                        icon: @image-url("icons/refresh.svg");
-                                        size: 38px;
-                                        icon-size: 18px;
-                                        enabled: !root.scanning;
-                                        clicked => { root.rescan(); }
-                                    }
-                                }
-                                if root.library-status != "": Text {
-                                    text: root.library-status;
-                                    color: Theme.fg-muted;
-                                    font-size: 11px;
-                                    wrap: word-wrap;
-                                }
-                            }
-
-                            // Listen
-                            if root.more-section == 1: VerticalLayout {
-                                spacing: 2px;
-                                NavItem {
-                                    icon: @image-url("icons/radio.svg");
-                                    label: "Radio";
-                                    clicked => { root.page = 3; }
-                                }
-                                NavItem {
-                                    icon: @image-url("icons/podcast.svg");
-                                    label: "Podcasts";
-                                    clicked => { root.page = 10; }
-                                }
-                                NavItem {
-                                    icon: @image-url("icons/queue.svg");
-                                    label: "Queue";
-                                    clicked => { root.page = 4; }
-                                }
-                                NavItem {
-                                    icon: @image-url("icons/visualizer.svg");
-                                    label: "Now Playing";
-                                    clicked => { root.page = 6; }
-                                }
-                            }
-
-                            // Playlists
-                            if root.more-section == 2: VerticalLayout {
-                                spacing: 2px;
-                                for pl[i] in root.playlists: NavItem {
-                                    icon: @image-url("icons/playlist.svg");
-                                    label: pl.name;
-                                    clicked => {
-                                        root.open-playlist(i);
-                                        root.page = 8;
-                                    }
-                                }
-                                if root.playlists.length == 0: Text {
-                                    text: "No playlists yet. Tap + to make one, or import an M3U playlist.";
-                                    color: Theme.fg-muted;
-                                    font-size: 13px;
-                                    wrap: word-wrap;
-                                }
-                            }
                         }
                     }
                 }
@@ -1211,7 +1239,8 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Phone, on every other page: a small player; tap it for Now Playing.
+            // Phone, on every other page: a small player. The cover plays or
+            // stops, the titles open Now Playing, Next/Q skips (hold: Queue).
             if root.phone && root.page != 6: Rectangle {
                 height: 64px;
                 background: Theme.bar;
@@ -1227,15 +1256,40 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout {
                     padding-left: 12px;
-                    padding-right: 6px;
-                    spacing: 10px;
+                    padding-right: 12px;
+                    spacing: 12px;
                     VerticalLayout {
                         alignment: center;
-                        Artwork {
-                            size: 44px;
-                            source: root.np-cover;
-                            has-image: root.np-has-cover;
-                            placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+                        Rectangle {
+                            width: 48px;
+                            height: 48px;
+                            Artwork {
+                                size: 48px;
+                                source: root.np-cover;
+                                has-image: root.np-has-cover;
+                                placeholder: root.is-radio ? @image-url("icons/radio.svg") : @image-url("icons/song.svg");
+                            }
+                            // The play / stop overlay: white, on a soft shade.
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 16px;
+                                background: art-touch.pressed ? #00000099 : #00000066;
+                                Image {
+                                    source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                                    width: 18px;
+                                    height: 18px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    colorize: #ffffff;
+                                }
+                            }
+                            art-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.toggle-play(); }
+                            }
                         }
                     }
                     VerticalLayout {
@@ -1262,22 +1316,10 @@ export component AppWindow inherits Window {
                     }
                     VerticalLayout {
                         alignment: center;
-                        IconButton {
-                            icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
-                            primary: true;
-                            size: 44px;
-                            icon-size: 22px;
-                            clicked => { root.toggle-play(); }
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            icon: @image-url("icons/next.svg");
-                            size: 44px;
-                            icon-size: 22px;
+                        NextQueueButton {
                             enabled: root.has-track;
-                            clicked => { root.next(); }
+                            next => { root.next(); }
+                            open-queue => { root.page = 4; }
                         }
                     }
                 }
@@ -1296,11 +1338,11 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout {
                     for tab[i] in [
-                        { icon: @image-url("icons/album.svg"), label: "Albums", page: 0 },
-                        { icon: @image-url("icons/song.svg"), label: "Songs", page: 2 },
+                        { icon: @image-url("icons/song.svg"), label: "Music", page: 2 },
                         { icon: @image-url("icons/radio.svg"), label: "Radio", page: 3 },
                         { icon: @image-url("icons/podcast.svg"), label: "Podcasts", page: 10 },
-                        { icon: @image-url("icons/more.svg"), label: "More", page: 11 },
+                        { icon: @image-url("icons/playlist.svg"), label: "Playlists", page: 11 },
+                        { icon: @image-url("icons/settings.svg"), label: "Settings", page: 7 },
                     ]: Rectangle {
                         horizontal-stretch: 1;
                         VerticalLayout {
@@ -1325,12 +1367,16 @@ export component AppWindow inherits Window {
                         }
                         TouchArea {
                             clicked => {
-                                // "More" opens its menu: Library, Listen, Playlists.
-                                if (tab.page == 11) {
-                                    more-menu.show();
+                                if (i == 0) {
+                                    // Music: back to the view last shown; tapped
+                                    // again on an artist's albums, all albums.
+                                    if (root.active-tab == 0 && root.page == 0 && root.albums-filtered) {
+                                        root.show-all-albums();
+                                    }
+                                    root.page = root.page == 5 && !root.album-from-server ? 0 : root.music-page;
                                     return;
                                 }
-                                if (tab.page == 0 && root.albums-filtered) { root.show-all-albums(); }
+                                root.np-group = false;
                                 root.page = tab.page;
                             }
                         }
@@ -1503,65 +1549,6 @@ export component AppWindow inherits Window {
                                     root.volume-changed(v);
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ---------------- Phone: the "More" menu ----------------
-    // Opens above the "More" tab; picking a part shows it on the "More" page.
-    more-menu := PopupWindow {
-        width: 248px;
-        height: more-box.preferred-height;
-        x: root.width - root.safe-area-insets.right - self.width - 8px;
-        y: root.height - root.safe-area-insets.bottom - 58px - self.height - 8px;
-        more-box := Rectangle {
-            border-radius: 14px;
-            background: Theme.surface;
-            border-width: 1px;
-            border-color: Theme.border;
-            drop-shadow-blur: 20px;
-            drop-shadow-color: #00000050;
-            VerticalLayout {
-                padding: 8px;
-                spacing: 2px;
-                for part[i] in [
-                    { icon: @image-url("icons/album.svg"), label: "Library" },
-                    { icon: @image-url("icons/radio.svg"), label: "Listen" },
-                    { icon: @image-url("icons/playlist.svg"), label: "Playlists" },
-                ]: NavItem {
-                    icon: part.icon;
-                    label: part.label;
-                    selected: root.page == 11 && root.more-section == i;
-                    clicked => {
-                        root.more-section = i;
-                        root.page = 11;
-                        more-menu.close();
-                    }
-                }
-                Rectangle { height: 6px; }
-                Rectangle { height: 1px; background: Theme.border; }
-                Rectangle { height: 6px; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    ThemeSwitch {
-                        horizontal-stretch: 1;
-                        selected(mode) => {
-                            root.apply-theme(mode);
-                            root.theme-selected(mode);
-                        }
-                    }
-                    IconButton {
-                        icon: @image-url("icons/settings.svg");
-                        size: 36px;
-                        icon-size: 18px;
-                        active: root.page == 7;
-                        tint: Theme.fg-muted;
-                        clicked => {
-                            root.page = 7;
-                            more-menu.close();
                         }
                     }
                 }

@@ -58,8 +58,11 @@ ok install
 adb shell pm grant $APP android.permission.READ_MEDIA_AUDIO
 adb shell pm grant $APP android.permission.POST_NOTIFICATIONS
 
-# Positions (screen pixels, 1080x2400 at 420 dpi): the five tabs are at
-# x = 108, 324, 540, 756, 972 on y = 2200; the small player is at y = 2040.
+# Positions (screen pixels, 1080x2400 at 420 dpi): the five tabs (Music,
+# Radio, Podcasts, Playlists, Settings) are at x = 108, 324, 540, 756, 972
+# on y = 2200; the small player is at y = 2040, its Next/Q button at x 950.
+# The header chips (Music: Song, Album, Artist; Now Playing: Player, Queue,
+# Playlists) are on y = 249.
 TAB_Y=2200
 savelog() { applog > "$OUT/logcat-$1.txt"; }
 
@@ -69,13 +72,13 @@ adb logcat -c
 start_app
 wait_for "ui: event Position" 4 60
 sleep 2
-shot phone-albums
+shot phone-music
 check "startup" logged "startup: ready"
 check "local song plays" logged "ui: event Position"
-tap 300 2040 3          # the small player -> Now Playing
+tap 300 2040 3          # the small player's titles -> Now Playing
 shot phone-nowplaying
-# Now Playing buttons on y = 576: Like (x 145), Lyrics (407), Equalizer (700).
-tap 145 576 3; shot phone-liked                               # Like: makes "Likes"
+# Now Playing buttons on y = 685: Like (x 145), Lyrics (407), Equalizer (700).
+tap 145 685 3; shot phone-liked                               # Like: makes "Likes"
 check "Like adds the song to Likes" logged "likes: added"
 
 adb shell input keyevent KEYCODE_HOME
@@ -105,48 +108,46 @@ if wait_for "ui: event State(Playing)" "$((paused + 1))" 10; then ok "media butt
 
 # --- 2. back in the app: the other pages ------------------------------------
 start_app; sleep 3
-tap 108 $TAB_Y 3; tap 270 480 3; shot phone-album             # Albums -> first album
-tap 324 $TAB_Y 3; shot phone-songs                            # Songs
-tap 1006 281 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, closed by a tap outside
+tap 108 $TAB_Y 3; tap 302 249 3; shot phone-albums            # Music -> Album chip
+tap 270 596 3; shot phone-album                               # -> first album
+tap 108 $TAB_Y 3; tap 110 249 3; shot phone-songs             # Music -> Song chip
+tap 1006 397 2; shot phone-song-menu; tap 300 1500 1          # "…" menu, closed by a tap outside
 tap 979 134 3; shot phone-search; tap 1010 134 2              # search box, close it
 # Songs: long press picks a song (the "Add to Playlist…" bar appears above
 # the list and moves the rows down), Back lets it go again. Then swipes:
 # right = play next, left = end of the queue, each with a short bubble.
-adb shell input swipe 500 423 500 423 900; sleep 1; shot phone-songs-picked
+adb shell input swipe 500 538 500 538 900; sleep 1; shot phone-songs-picked
 check "long press picks a song" logged "songs: 1 picked"
-tap 733 260 2; shot phone-songs-add-to-playlist; tap 300 1900 1
+tap 733 375 2; shot phone-songs-add-to-playlist; tap 300 1900 1
 adb shell input keyevent KEYCODE_BACK; sleep 1
-adb shell input swipe 150 281 850 281 250; sleep 0.3; shot phone-songs-swiped-right
+adb shell input swipe 150 397 850 397 250; sleep 0.3; shot phone-songs-swiped-right
 check "swipe right plays next" logged "songs: swiped right"
 sleep 2
-adb shell input swipe 850 423 150 423 250; sleep 0.3; shot phone-songs-swiped-left
+adb shell input swipe 850 538 150 538 250; sleep 0.3; shot phone-songs-swiped-left
 check "swipe left adds to the end" logged "songs: swiped left"
 sleep 1
-tap 540 $TAB_Y 8; shot phone-radio                            # Radio
+tap 496 249 3; shot phone-artists                             # Artist chip
+tap 324 $TAB_Y 8; shot phone-radio                            # Radio
 tap 584 252 1; tap 775 252 1; tap 938 252 8                  # filters: Hungary + Pop + Rock at once
 shot phone-radio-filters
 tap 127 252 6                                                 # Popular clears them again
-tap 756 $TAB_Y 5; shot phone-podcasts                         # Podcasts
-# "More" opens a menu above its tab: Library (y 1620), Listen (1746),
-# Playlists (1872), and the theme switch with Settings (991, 2035).
-tap 972 $TAB_Y 2; shot phone-more                             # More: its menu
-tap 700 1746 3; shot phone-more-listen                        # -> Listen
-tap 211 533 3; shot phone-queue                               # Listen -> Queue
-tap 972 $TAB_Y 2; tap 700 1620 3; shot phone-more-library     # More -> Library
-tap 211 407 3; shot phone-artists                             # Library -> Artists
-tap 972 $TAB_Y 2; tap 700 1872 3; shot phone-more-playlists   # More -> Playlists (with Likes)
-tap 972 $TAB_Y 2; tap 991 2035 3; shot phone-settings         # More -> Settings
+tap 540 $TAB_Y 5; shot phone-podcasts                         # Podcasts
+# Holding the small player's Next/Q button opens the queue (Now Playing chips).
+adb shell input swipe 950 2040 950 2040 900; sleep 2; shot phone-queue
+tap 538 249 3; shot phone-np-playlists                        # Now Playing's Playlists chip
+tap 756 $TAB_Y 3; shot phone-playlists                        # Playlists tab (with Likes)
+tap 972 $TAB_Y 3; shot phone-settings                         # Settings tab
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-3
 tap 224 1485 3; shot phone-add-server                         # Settings -> Add server
 tap 400 321 2; shot phone-add-server-plex                     # its Plex tab
 adb shell input keyevent KEYCODE_BACK; sleep 2                # Back closes the dialog
 # Another song plays by now: Like it, then tap again to take the like back.
-tap 300 2040 3; tap 145 576 3; tap 145 576 3; shot phone-unliked
+tap 300 2040 3; tap 145 685 3; tap 145 685 3; shot phone-unliked
 check "Like again takes the song out of Likes" logged "likes: removed"
-tap 700 576 3; shot phone-equalizer                           # Equalizer
-tap 700 576 1
-# Back: Now Playing -> Albums, then out of the app (which keeps playing).
+tap 700 685 3; shot phone-equalizer                           # Equalizer
+tap 700 685 1
+# Back: Now Playing -> Music, then out of the app (which keeps playing).
 adb shell input keyevent KEYCODE_BACK; sleep 2; shot phone-after-back
 adb shell input keyevent KEYCODE_BACK; sleep 3
 if adb shell dumpsys activity activities | grep -m1 "ResumedActivity" | grep -q "$APP"; then fail "Back leaves the app"; else ok "Back leaves the app"; fi
