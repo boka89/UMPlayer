@@ -192,16 +192,68 @@ export component Chip inherits Rectangle {
     }
 }
 
+/// Dragging songs, albums, artists and podcasts onto the sidebar playlists
+/// and the queue. The payloads are made and read in Rust (src/app.rs).
+export global Dnd {
+    /// Wraps "song:<list>:<index>", "album:<index>", … for a drag.
+    pure callback payload(string) -> data-transfer;
+    /// True for a drag that started in Unitn (not files from other apps).
+    pure callback ours(data-transfer) -> bool;
+    /// Dropped on the queue (-1), "new playlist" (-2) or sidebar playlist i.
+    callback dropped(data-transfer, int);
+    /// A drag of ours is in flight (drop targets show themselves).
+    in-out property <bool> active;
+}
+
+/// Makes what is inside draggable onto the sidebar playlists and the queue.
+/// `what` names it for Rust (see Dnd.payload), `kind` picks the drag badge.
+export component DragSource inherits DragArea {
+    in property <string> what;
+    in property <string> kind: "song";
+    allow-copy: true;
+    data: Dnd.payload(root.what);
+    drag-image: root.kind == "album" ? @image-url("icons/drag-album.svg")
+        : root.kind == "artist" ? @image-url("icons/drag-artist.svg")
+        : root.kind == "podcast" ? @image-url("icons/drag-podcast.svg")
+        : @image-url("icons/drag-song.svg");
+    drag-image-offset-x: -8;
+    drag-image-offset-y: -8;
+    changed dragging => { Dnd.active = self.dragging; }
+}
+
+/// Accepts drags started in Unitn; `hot` while one hovers over it.
+export component DropTarget inherits DropArea {
+    callback accepted(data-transfer);
+    out property <bool> hot: self.has-drag;
+    can-drop(event) => { Dnd.ours(event.data) ? DragAction.copy : DragAction.none }
+    dropped(event) => {
+        root.accepted(event.data);
+        Dnd.active = false;
+        DragAction.copy
+    }
+}
+
 export component NavItem inherits Rectangle {
     in property <image> icon;
     in property <string> label;
     in property <bool> selected;
+    /// Songs, albums, artists and podcasts can be dropped on it.
+    in property <bool> drop-target: false;
     callback clicked;
+    callback dropped(data-transfer);
 
     height: 38px;
     border-radius: 8px;
-    background: selected ? Theme.surface-hover : (touch.has-hover ? Theme.surface : transparent);
+    background: drop.hot ? Theme.accent-soft
+        : selected ? Theme.surface-hover : (touch.has-hover ? Theme.surface : transparent);
+    border-width: root.drop-target && Dnd.active ? 1px : 0px;
+    border-color: drop.hot ? Theme.accent : Theme.accent.transparentize(0.6);
     animate background { duration: 120ms; }
+
+    drop := DropTarget {
+        enabled: root.drop-target;
+        accepted(data) => { root.dropped(data); }
+    }
 
     // Accent marker for the selected page.
     Rectangle {
