@@ -980,14 +980,16 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        // Like, above the end of the track length (songs only,
-                        // not radio or podcasts). Same as the heart on Now Playing.
-                        if root.np-can-like: IconButton {
-                            x: parent.width - 52px;
-                            y: parent.height - self.height;
+                        // Like, above the end of the track length, level with the
+                        // play controls. Always shown; greyed out when nothing
+                        // likeable plays (radio, podcasts). Same as on Now Playing.
+                        IconButton {
+                            x: parent.width - 53px;
+                            y: (parent.height - self.height) / 2;
+                            enabled: root.np-can-like;
                             icon: root.np-liked ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
-                            size: 30px;
-                            icon-size: 17px;
+                            size: 32px;
+                            icon-size: 18px;
                             active: root.np-liked;
                             tint: Theme.fg-muted;
                             clicked => { root.toggle-like(); }
