@@ -136,6 +136,7 @@ tap 540 $TAB_Y 5; shot phone-podcasts                         # Podcasts
 # Holding the small player's Next/Q button opens the queue (Now Playing chips).
 adb shell input swipe 980 2040 980 2040 900; sleep 2; shot phone-queue
 tap 538 249 3; shot phone-np-playlists                        # Now Playing's Playlists chip
+tap 772 249 3; shot phone-np-sources                          # its Sources chip: folders, servers
 tap 756 $TAB_Y 3; shot phone-playlists                        # Playlists tab (with Likes)
 tap 972 $TAB_Y 3; shot phone-settings                         # Settings tab
 adb shell input swipe 540 1700 540 500 400; sleep 2; shot phone-settings-2
