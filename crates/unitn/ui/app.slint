@@ -166,16 +166,17 @@ export component AppWindow inherits Window {
     property <bool> np-group: false;
     /// Phone: Music, Album or Artist view, with the Song / Album / Artist chips.
     property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2);
-    /// Phone: Now Playing, Queue or Playlists, with the Player / Queue / Playlists chips.
-    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || root.page == 12 || ((root.page == 11 || root.page == 8) && root.np-group));
+    /// Phone: Now Playing, Queue, Playlists (also from the Playlists tab) or
+    /// Sources, with the Player / Queue / Playlists / Sources chips.
+    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || root.page == 12 || root.page == 11 || root.page == 8);
     /// Phone: a server's albums (page 9) were opened from Sources, not Settings.
     property <bool> server-from-sources: false;
     /// Phone: which bottom tab is lit (-1: none).
     property <int> active-tab: (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 5 && !root.album-from-server)) ? 0
         : root.page == 3 ? 1
         : root.page == 10 ? 2
+        : (root.page == 11 || root.page == 8) && !root.np-group ? 3
         : root.np-chips || root.page == 6 ? -1
-        : (root.page == 11 || root.page == 8) ? 3
         : 4;
 
     // Pages: 0 albums, 1 artists, 2 songs, 3 radio, 4 queue, 5 album detail, 6 now playing, 7 settings, 8 playlist
@@ -759,6 +760,8 @@ export component AppWindow inherits Window {
                             text: root.phone && root.page == 0 && !root.albums-filtered ? "Music"
                                 : root.page == 0 ? root.albums-title
                                 : root.phone && (root.page == 1 || root.page == 2) ? "Music"
+                                : root.phone && root.page == 11 && !root.np-group ? "Playlists"
+                                : root.phone && root.page == 8 && !root.np-group ? "Playlist"
                                 : root.np-chips ? "Now Playing"
                                 : root.page == 11 ? "Playlists"
                                 : root.page == 1 ? "Artists"
