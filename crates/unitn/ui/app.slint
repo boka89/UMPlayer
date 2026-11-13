@@ -2040,12 +2040,32 @@ export component AppWindow inherits Window {
     }
 
     // ---------------- Full-screen visualizer ----------------
-    if root.viz-fullscreen: Rectangle {
+    if root.viz-fullscreen: full-viz := Rectangle {
+        // A tap plays or stops (once it is clear it is not a double tap);
+        // a double tap likes or unlikes the song, shown by a heart.
+        property <bool> heart-show: false;
+        property <bool> heart-liked: false;
         x: 0px;
         y: 0px;
         width: parent.width;
         height: parent.height;
         background: Theme.dark ? #050508 : Theme.bg;
+        tap-timer := Timer {
+            interval: 300ms;
+            running: false;
+            triggered => {
+                self.running = false;
+                root.toggle-play();
+            }
+        }
+        heart-timer := Timer {
+            interval: 1s;
+            running: false;
+            triggered => {
+                self.running = false;
+                full-viz.heart-show = false;
+            }
+        }
 
         if root.np-has-backdrop: Image {
             width: parent.width;
@@ -2095,9 +2115,23 @@ export component AppWindow inherits Window {
                 return reject;
             }
             // Buttons, hints and the mouse pointer show while the mouse moves
-            // and fade out when it stops; clicks do nothing.
+            // and fade out when it stops. Tap: play/stop; double tap: like.
             full-idle := IdleArea {
                 hide-cursor: true;
+                clicked => {
+                    if (tap-timer.running) {
+                        tap-timer.running = false;
+                        if (root.np-can-like) {
+                            full-viz.heart-liked = !root.np-liked;
+                            root.toggle-like();
+                            full-viz.heart-show = true;
+                            heart-timer.running = false;
+                            heart-timer.running = true;
+                        }
+                    } else {
+                        tap-timer.running = true;
+                    }
+                }
                 keep-x: full-controls.x;
                 keep-y: full-controls.y;
                 keep-width: full-controls.width;
@@ -2131,6 +2165,18 @@ export component AppWindow inherits Window {
                 opacity: full-idle.active ? 1.0 : 0.0;
                 animate opacity { duration: 250ms; }
             }
+        }
+
+        // The like / unlike heart, for a second after a double tap.
+        Image {
+            width: 120px;
+            height: 120px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            source: full-viz.heart-liked ? @image-url("icons/heart-filled.svg") : @image-url("icons/heart.svg");
+            colorize: Theme.dark ? #ffffff : Theme.accent;
+            opacity: full-viz.heart-show ? 0.95 : 0.0;
+            animate opacity { duration: 180ms; }
         }
 
         full-controls := VizControls {
