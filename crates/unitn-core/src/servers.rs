@@ -1,5 +1,7 @@
-//! Music from your own media servers: Jellyfin, Plex and OpenSubsonic
-//! servers (Navidrome, Gonic, Airsonic and other Subsonic-compatible ones).
+//! Music from your own media servers: Jellyfin, Plex, OpenSubsonic
+//! servers (Navidrome, Gonic, Airsonic and other Subsonic-compatible ones)
+//! and DLNA / UPnP media servers (the media server built into most NAS
+//! boxes, e.g. Twonky or MiniDLNA).
 //!
 //! Both are reached over their HTTP APIs with an access token. Songs are
 //! streamed as the original files (see [`crate::audio::Source::Remote`]), so
@@ -19,6 +21,8 @@ pub enum ServerKind {
     Plex,
     /// OpenSubsonic / Subsonic API (Navidrome, Gonic, Airsonic, …).
     Subsonic,
+    /// DLNA / UPnP AV media server (Twonky, MiniDLNA, Serviio, NAS boxes, …).
+    Dlna,
 }
 
 impl ServerKind {
@@ -27,6 +31,7 @@ impl ServerKind {
             ServerKind::Jellyfin => "Jellyfin",
             ServerKind::Plex => "Plex",
             ServerKind::Subsonic => "Subsonic",
+            ServerKind::Dlna => "DLNA",
         }
     }
 
@@ -35,6 +40,7 @@ impl ServerKind {
             ServerKind::Jellyfin => "jellyfin",
             ServerKind::Plex => "plex",
             ServerKind::Subsonic => "subsonic",
+            ServerKind::Dlna => "dlna",
         }
     }
 }
@@ -53,8 +59,12 @@ pub struct ServerConfig {
     /// Jellyfin user id.
     #[serde(default)]
     pub user_id: String,
-    /// Identifies this app installation to the server.
+    /// Identifies this app installation to the server. DLNA: the address
+    /// of the server's description (`user_id` holds its UDN).
     pub device_id: String,
+    /// DLNA: the address of the server's ContentDirectory service.
+    #[serde(default)]
+    pub control_url: String,
 }
 
 /// An album on a server.
@@ -90,6 +100,7 @@ pub fn normalize_url(url: &str, kind: ServerKind) -> String {
             ServerKind::Jellyfin => ":8096",
             ServerKind::Plex => ":32400",
             ServerKind::Subsonic => ":4533",
+            ServerKind::Dlna => "",
         }
     };
     format!("http://{url}{port}")
@@ -135,12 +146,16 @@ fn new_device_id() -> String {
 /// Signs in and returns the configuration to save. For Plex, `user` may be
 /// empty and `secret` an X-Plex-Token; otherwise `secret` is the password.
 pub fn connect(kind: ServerKind, url: &str, user: &str, secret: &str) -> Result<ServerConfig> {
+    if kind == ServerKind::Dlna {
+        return dlna::connect(url);
+    }
     let url = normalize_url(url, kind);
     let device_id = new_device_id();
     match kind {
         ServerKind::Jellyfin => jellyfin::connect(&url, user.trim(), secret, device_id),
         ServerKind::Plex => plex::connect(&url, user.trim(), secret, device_id),
         ServerKind::Subsonic => subsonic::connect(&url, user.trim(), secret, device_id),
+        ServerKind::Dlna => unreachable!(),
     }
 }
 
@@ -154,17 +169,23 @@ pub fn search_tracks(cfg: &ServerConfig, query: &str) -> Result<Vec<Track>> {
         ServerKind::Jellyfin => jellyfin::search(cfg, query),
         ServerKind::Plex => plex::search(cfg, query),
         ServerKind::Subsonic => subsonic::search(cfg, query),
+        ServerKind::Dlna => dlna::search(cfg, query),
     }
 }
 
 /// The address a server song streams from, with the current credentials.
 /// `stream_ref` is what [`stream_ref`] returned (a path without tokens).
 pub fn stream_url(cfg: &ServerConfig, stream_ref: &str) -> String {
+    if cfg.kind == ServerKind::Dlna {
+        // No credentials. Files served from another address are saved whole.
+        return if stream_ref.contains("://") { stream_ref.to_string() } else { format!("{}{stream_ref}", cfg.url) };
+    }
     let sep = if stream_ref.contains('?') { '&' } else { '?' };
     let auth = match cfg.kind {
         ServerKind::Jellyfin => format!("deviceId={}&api_key={}", cfg.device_id, cfg.token),
         ServerKind::Plex => format!("X-Plex-Token={}", cfg.token),
         ServerKind::Subsonic => subsonic::auth_query(cfg),
+        ServerKind::Dlna => unreachable!(),
     };
     format!("{}{stream_ref}{sep}{auth}", cfg.url)
 }
@@ -172,11 +193,15 @@ pub fn stream_url(cfg: &ServerConfig, stream_ref: &str) -> String {
 /// The part of a song's stream address that can be saved (in playlists):
 /// without the server address and without any credentials.
 pub fn stream_ref(cfg: &ServerConfig, stream_url: &str) -> Option<String> {
+    if cfg.kind == ServerKind::Dlna {
+        return Some(stream_url.strip_prefix(cfg.url.as_str()).unwrap_or(stream_url).to_string());
+    }
     let rest = stream_url.strip_prefix(cfg.url.as_str())?;
     let marker = match cfg.kind {
         ServerKind::Jellyfin => "deviceId=",
         ServerKind::Plex => "X-Plex-Token=",
         ServerKind::Subsonic => "u=",
+        ServerKind::Dlna => unreachable!(),
     };
     let cut = ['?', '&'].iter().filter_map(|c| rest.find(&format!("{c}{marker}"))).min()?;
     Some(rest[..cut].to_string())
@@ -231,6 +256,7 @@ pub fn albums(cfg: &ServerConfig) -> Result<Vec<ServerAlbum>> {
         ServerKind::Jellyfin => jellyfin::albums(cfg)?,
         ServerKind::Plex => plex::albums(cfg)?,
         ServerKind::Subsonic => subsonic::albums(cfg)?,
+        ServerKind::Dlna => dlna::albums(cfg)?,
     };
     list.sort_by_cached_key(|a| (a.artist.to_lowercase(), a.title.to_lowercase()));
     Ok(list)
@@ -242,6 +268,7 @@ pub fn album_tracks(cfg: &ServerConfig, album: &ServerAlbum) -> Result<Vec<Track
         ServerKind::Jellyfin => jellyfin::album_tracks(cfg, album)?,
         ServerKind::Plex => plex::album_tracks(cfg, album)?,
         ServerKind::Subsonic => subsonic::album_tracks(cfg, album)?,
+        ServerKind::Dlna => dlna::album_tracks(cfg, album)?,
     };
     tracks.sort_by_key(|t| (t.disc_no, t.track_no));
     Ok(tracks)
@@ -276,6 +303,23 @@ fn str_of(v: &Value) -> String {
 fn u32_of(v: &Value) -> u32 {
     v.as_u64().unwrap_or(0).min(u32::MAX as u64) as u32
 }
+
+/// A DLNA media server found on the local network.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DlnaServer {
+    /// The server's own name, e.g. "MyBookWorld: Twonky".
+    pub name: String,
+    /// Address of its device description (what [`connect`] takes).
+    pub location: String,
+}
+
+/// Looks for DLNA / UPnP media servers on the local network for about
+/// `wait` (an SSDP search; answers come back as ordinary unicast packets).
+pub fn dlna_discover(wait: std::time::Duration) -> Vec<DlnaServer> {
+    dlna::discover(wait)
+}
+
+mod dlna;
 
 mod jellyfin {
     use super::*;
@@ -333,6 +377,7 @@ mod jellyfin {
             token,
             user_id,
             device_id,
+            control_url: String::new(),
         })
     }
 
@@ -701,6 +746,7 @@ mod plex {
             token,
             user_id: String::new(),
             device_id,
+            control_url: String::new(),
         };
         let root = get(&cfg, "/", &[])?;
         if let Some(name) = root["MediaContainer"]["friendlyName"].as_str().filter(|n| !n.is_empty()) {
@@ -881,6 +927,7 @@ mod subsonic {
             token: format!("{token}:{salt}"),
             user_id: String::new(),
             device_id,
+            control_url: String::new(),
         };
         let ping = get(&cfg, "ping", &[])?;
         if let Some(kind) = ping["type"].as_str().filter(|t| !t.is_empty()) {
@@ -996,6 +1043,7 @@ mod tests {
             token: "TOK".into(),
             user_id: "U1".into(),
             device_id: "dev".into(),
+            control_url: String::new(),
         }
     }
 
