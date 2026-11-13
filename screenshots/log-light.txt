@@ -1,0 +1,100 @@
+[   0.000] Unitn 0.5.15 on linux x86_64
+[   0.001] startup: creating window
+[   0.027] startup: window shown
+[   0.027] startup: ready
+[   0.027] startup: library shown in 0 ms
+[   0.088] startup: ready in 61 ms
+[   0.250] art: looking up 1 albums online
+[   0.426] media controls attached
+[   0.774] art: lookup failed for Nine Inch Nails / Ghosts I–IV: https://musicbrainz.org/ws/2/release-group/?query=releasegroup%3A%22Ghosts+I%E2%80%93IV%22+AND+artist%3A%22Nine+Inch+Nails%22&fmt=json&limit=5: status code 503
+[  14.023] audio: load File("/home/runner/Music/Aurora Lane/Northern Lights/01 Polar Night.mp3")
+[  14.026] audio: output device "default", F32, 2 ch, 44100 Hz
+[  14.026] audio: preloading 1.2 MB
+[  14.026] audio: preloading 1.4 MB
+[  14.037] ui: event State(Buffering)
+[  14.046] audio: source ready, duration Some(173.0)
+[  14.046] audio: next track prepared
+[  14.047] audio: first chunk 47 samples, 1 ch, 48000 Hz -> device 2 ch, 44100 Hz
+[  14.076] ui: event Position { position: 0.0, duration: Some(173.0) }
+[  14.077] ui: event State(Playing)
+[  17.089] ui: event Position { position: 1.124671201814059, duration: Some(173.0) }
+[  18.106] ui: event Position { position: 2.1244444444444444, duration: Some(173.0) }
+[  19.121] ui: event Position { position: 3.149206349206349, duration: Some(173.0) }
+[  20.171] ui: event Position { position: 4.19891156462585, duration: Some(173.0) }
+[  21.203] ui: event Position { position: 5.198684807256236, duration: Some(173.0) }
+[  22.218] ui: event Position { position: 6.223514739229025, duration: Some(173.0) }
+[  23.232] ui: event Position { position: 7.24827664399093, duration: Some(173.0) }
+[  24.244] ui: event Position { position: 8.29798185941043, duration: Some(173.0) }
+[  25.031] ui: event Position { position: 9.022879818594104, duration: Some(173.0) }
+[  26.036] ui: event Position { position: 10.074988662131519, duration: Some(173.0) }
+[  27.061] ui: event Position { position: 11.086961451247166, duration: Some(173.0) }
+[  28.083] ui: event Position { position: 12.120226757369615, duration: Some(173.0) }
+[  29.095] ui: event Position { position: 13.129433106575963, duration: Some(173.0) }
+[  30.124] ui: event Position { position: 14.156961451247165, duration: Some(173.0) }
+[  31.138] ui: event Position { position: 15.161292517006803, duration: Some(173.0) }
+[  32.157] ui: event Position { position: 16.194036281179137, duration: Some(173.0) }
+[  33.168] ui: event Position { position: 17.20079365079365, duration: Some(173.0) }
+[  34.175] ui: event Position { position: 18.23106575963719, duration: Some(173.0) }
+[  35.194] ui: event Position { position: 19.237596371882088, duration: Some(173.0) }
+[  35.962] ui: event Position { position: 20.01609977324263, duration: Some(173.0) }
+[  36.982] ui: event Position { position: 21.02310657596372, duration: Some(173.0) }
+[  38.017] ui: event Position { position: 22.05451247165533, duration: Some(173.0) }
+[  39.030] ui: event Position { position: 23.0612925170068, duration: Some(173.0) }
+[  40.042] ui: event Position { position: 24.08895691609977, duration: Some(173.0) }
+[  41.059] ui: event Position { position: 25.097278911564626, duration: Some(173.0) }
+[  42.099] ui: event Position { position: 26.106757369614513, duration: Some(173.0) }
+[  43.077] ui: event Position { position: 27.137551020408164, duration: Some(173.0) }
+[  44.125] ui: event Position { position: 28.1668253968254, duration: Some(173.0) }
+[  45.133] ui: event Position { position: 29.172925170068027, duration: Some(173.0) }
+[  46.151] ui: event Position { position: 30.184399092970523, duration: Some(173.0) }
+[  47.164] ui: event Position { position: 31.218979591836735, duration: Some(173.0) }
+[  48.174] ui: event Position { position: 32.22263038548753, duration: Some(173.0) }
+[  49.189] ui: event Position { position: 33.227868480725625, duration: Some(173.0) }
+[  49.969] ui: event Position { position: 34.008639455782316, duration: Some(173.0) }
+[  50.981] ui: event Position { position: 35.037891156462585, duration: Some(173.0) }
+[  51.992] ui: event Position { position: 36.04267573696145, duration: Some(173.0) }
+[  53.011] ui: event Position { position: 37.07442176870748, duration: Some(173.0) }
+[  53.217] audio: load File("/home/runner/Music/Aurora Lane/Northern Lights/03 Snowfall Radio.mp3")
+[  53.217] audio: preloading 1.7 MB
+[  53.217] audio: preloading 1.5 MB
+[  53.237] audio: next track prepared
+[  53.237] audio: source ready, duration Some(219.0)
+[  53.238] audio: first chunk 47 samples, 1 ch, 48000 Hz -> device 2 ch, 44100 Hz
+[  53.252] ui: event State(Buffering)
+[  53.252] ui: event Position { position: 0.0, duration: Some(219.0) }
+[  53.252] ui: event State(Playing)
+[  54.315] ui: event Position { position: 1.0295238095238095, duration: Some(219.0) }
+[  55.296] ui: event Position { position: 2.0581632653061224, duration: Some(219.0) }
+[  56.310] ui: event Position { position: 3.0615419501133787, duration: Some(219.0) }
+[  57.323] ui: event Position { position: 4.090566893424036, duration: Some(219.0) }
+[  58.343] ui: event Position { position: 5.0981179138321995, duration: Some(219.0) }
+[  59.366] ui: event Position { position: 6.102925170068027, duration: Some(219.0) }
+[  60.373] ui: event Position { position: 7.133424036281179, duration: Some(219.0) }
+[  61.390] ui: event Position { position: 8.135759637188208, duration: Some(219.0) }
+[  62.412] ui: event Position { position: 9.165419501133787, duration: Some(219.0) }
+[  63.425] ui: event Position { position: 10.170430839002268, duration: Some(219.0) }
+[  64.444] ui: event Position { position: 11.174149659863945, duration: Some(219.0) }
+[  65.457] ui: event Position { position: 12.20310657596372, duration: Some(219.0) }
+[  66.472] ui: event Position { position: 13.209727891156463, duration: Some(219.0) }
+[  67.485] ui: event Position { position: 14.213038548752834, duration: Some(219.0) }
+[  68.502] ui: event Position { position: 15.242176870748299, duration: Some(219.0) }
+[  69.489] ui: event Position { position: 16.247097505668933, duration: Some(219.0) }
+[  70.287] ui: event Position { position: 17.004603174603176, duration: Some(219.0) }
+[  71.311] ui: event Position { position: 18.036780045351474, duration: Some(219.0) }
+[  72.330] ui: event Position { position: 19.06875283446712, duration: Some(219.0) }
+[  73.352] ui: event Position { position: 20.073038548752834, duration: Some(219.0) }
+[  74.366] ui: event Position { position: 21.103945578231293, duration: Some(219.0) }
+[  75.384] ui: event Position { position: 22.13299319727891, duration: Some(219.0) }
+[  76.416] ui: event Position { position: 23.135736961451247, duration: Some(219.0) }
+[  77.438] ui: event Position { position: 24.166961451247165, duration: Some(219.0) }
+[  78.464] ui: event Position { position: 25.19922902494331, duration: Some(219.0) }
+[  79.462] ui: event Position { position: 26.208321995464853, duration: Some(219.0) }
+[  80.494] ui: event Position { position: 27.241201814058957, duration: Some(219.0) }
+[  81.259] ui: event Position { position: 28.01825396825397, duration: Some(219.0) }
+[  82.288] ui: event Position { position: 29.024625850340136, duration: Some(219.0) }
+[  83.316] ui: event Position { position: 30.05736961451247, duration: Some(219.0) }
+[  84.327] ui: event Position { position: 31.061995464852608, duration: Some(219.0) }
+[  85.362] ui: event Position { position: 32.090385487528344, duration: Some(219.0) }
+[  86.360] ui: event Position { position: 33.120226757369615, duration: Some(219.0) }
+[  87.380] ui: event Position { position: 34.126666666666665, duration: Some(219.0) }
+[  88.403] ui: event Position { position: 35.16625850340136, duration: Some(219.0) }
