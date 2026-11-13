@@ -46,75 +46,6 @@ component ThemeSwitch inherits Rectangle {
     }
 }
 
-/// Phone player bar: one button for "next song" (tap) and "queue" (hold),
-/// drawn as the next icon and a "Q" on the purple play-button color.
-component NextQueueButton inherits Rectangle {
-    in property <bool> enabled: true;
-    callback next();
-    callback open-queue();
-    property <bool> holding: false;
-    property <bool> held: false;
-
-    // Nearly round: just wide enough for the icon, "/" and "Q".
-    width: 52px;
-    height: 48px;
-    border-radius: 24px;
-    background: touch.pressed ? Theme.accent.darker(0.15) : Theme.accent;
-    opacity: root.enabled ? 1.0 : 0.6;
-    HorizontalLayout {
-        alignment: center;
-        spacing: 1px;
-        VerticalLayout {
-            alignment: center;
-            Image {
-                source: @image-url("icons/next.svg");
-                width: 16px;
-                height: 16px;
-                colorize: Theme.on-accent;
-            }
-        }
-        Text {
-            text: "/";
-            color: Theme.on-accent.transparentize(0.35);
-            font-size: 14px;
-            font-weight: 400;
-            vertical-alignment: center;
-        }
-        Text {
-            text: "Q";
-            color: Theme.on-accent;
-            font-size: 15px;
-            font-weight: 800;
-            vertical-alignment: center;
-        }
-    }
-    hold-timer := Timer {
-        interval: 500ms;
-        running: root.holding;
-        triggered => {
-            root.holding = false;
-            root.held = true;
-            root.open-queue();
-        }
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        pointer-event(event) => {
-            if (event.kind == PointerEventKind.down) {
-                root.held = false;
-                root.holding = true;
-            }
-            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-                root.holding = false;
-            }
-        }
-        clicked => {
-            if (root.held) { root.held = false; return; }
-            if (root.enabled) { root.next(); }
-        }
-    }
-}
-
 export component AppWindow inherits Window {
     title: "Unitn player";
     icon: @image-url("../icons/256x256.png");
@@ -1380,8 +1311,9 @@ export component AppWindow inherits Window {
             }
 
             // Phone, on every other page: a small player. A tap on the cover
-            // or the titles plays or stops; holding them (or swiping up) opens
-            // Now Playing. Next/Q skips (hold: Queue).
+            // plays or stops; a tap on the rest opens Now Playing, holding it
+            // (or swiping up) the Queue. The button on the right skips to the
+            // next song.
             if root.phone && root.page != 6: Rectangle {
                 property <bool> band-holding: false;
                 property <bool> band-held: false;
@@ -1393,7 +1325,7 @@ export component AppWindow inherits Window {
                     triggered => {
                         parent.band-holding = false;
                         parent.band-held = true;
-                        root.page = 6;
+                        root.page = 4;
                     }
                 }
                 band-touch := TouchArea {
@@ -1410,16 +1342,16 @@ export component AppWindow inherits Window {
                     moved => {
                         if (!self.pressed || parent.band-held) { return; }
                         if (Math.abs((self.mouse-x - self.pressed-x) / 1px) > 10) { parent.band-holding = false; }
-                        // Swipe up: Now Playing.
+                        // Swipe up: the Queue.
                         if (self.pressed-y - self.mouse-y > 24px) {
                             parent.band-holding = false;
                             parent.band-held = true;
-                            root.page = 6;
+                            root.page = 4;
                         }
                     }
                     clicked => {
                         if (parent.band-held) { parent.band-held = false; return; }
-                        root.toggle-play();
+                        root.page = 6;
                     }
                 }
                 Rectangle {
@@ -1451,7 +1383,7 @@ export component AppWindow inherits Window {
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 16px;
-                                background: band-touch.pressed ? #00000099 : #00000066;
+                                background: art-touch.pressed ? #00000099 : #00000066;
                                 Image {
                                     source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
                                     width: 18px;
@@ -1460,6 +1392,10 @@ export component AppWindow inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     colorize: #ffffff;
                                 }
+                            }
+                            art-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.toggle-play(); }
                             }
                         }
                     }
@@ -1487,10 +1423,12 @@ export component AppWindow inherits Window {
                     }
                     VerticalLayout {
                         alignment: center;
-                        NextQueueButton {
+                        IconButton {
+                            icon: @image-url("icons/next.svg");
+                            size: 48px;
+                            icon-size: 24px;
                             enabled: root.has-track;
-                            next => { root.next(); }
-                            open-queue => { root.page = 4; }
+                            clicked => { root.next(); }
                         }
                     }
                 }

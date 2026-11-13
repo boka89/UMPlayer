@@ -60,8 +60,8 @@ adb shell pm grant $APP android.permission.POST_NOTIFICATIONS
 
 # Positions (screen pixels, 1080x2400 at 420 dpi): the five tabs (Music,
 # Radio, Podcasts, Playlists, Settings) are at x = 108, 324, 540, 756, 972
-# on y = 2200; the small player is at y = 2040 (tap: play/stop, hold: Now
-# Playing), its Next/Q button at x 980 (tap: next, hold: Queue).
+# on y = 2200; the small player is at y = 2040 (cover x 95: play/stop; the
+# rest: tap Now Playing, hold Queue), its Next button at x 980.
 # The header chips (Music: Song, Album, Artist; Now Playing: Player, Queue,
 # Playlists) are on y = 249.
 TAB_Y=2200
@@ -76,7 +76,7 @@ sleep 2
 shot phone-music
 check "startup" logged "startup: ready"
 check "local song plays" logged "ui: event Position"
-adb shell input swipe 300 2040 300 2040 900; sleep 3   # hold the small player -> Now Playing
+tap 300 2040 3          # the small player -> Now Playing
 shot phone-nowplaying
 # Now Playing buttons on y = 685: Like (x 145), Lyrics (407), Equalizer (700).
 tap 145 685 3; shot phone-liked                               # Like: makes "Likes"
@@ -133,8 +133,8 @@ tap 584 252 1; tap 775 252 1; tap 938 252 8                  # filters: Hungary 
 shot phone-radio-filters
 tap 127 252 6                                                 # Popular clears them again
 tap 540 $TAB_Y 5; shot phone-podcasts                         # Podcasts
-# Holding the small player's Next/Q button opens the queue (Now Playing chips).
-adb shell input swipe 980 2040 980 2040 900; sleep 2; shot phone-queue
+# Holding the small player opens the queue (with the Now Playing chips).
+adb shell input swipe 300 2040 300 2040 900; sleep 3; shot phone-queue
 tap 538 249 3; shot phone-np-playlists                        # Now Playing's Playlists chip
 tap 772 249 3; shot phone-np-sources                          # its Sources chip: folders, servers
 tap 756 $TAB_Y 3; shot phone-playlists                        # Playlists tab (with Likes)
@@ -145,7 +145,7 @@ tap 224 1485 3; shot phone-add-server                         # Settings -> Add 
 tap 400 321 2; shot phone-add-server-plex                     # its Plex tab
 adb shell input keyevent KEYCODE_BACK; sleep 2                # Back closes the dialog
 # Another song plays by now: Like it, then tap again to take the like back.
-adb shell input swipe 300 2040 300 2040 900; sleep 3; tap 145 685 3; tap 145 685 3; shot phone-unliked
+tap 300 2040 3; tap 145 685 3; tap 145 685 3; shot phone-unliked
 check "Like again takes the song out of Likes" logged "likes: removed"
 tap 700 685 3; shot phone-equalizer                           # Equalizer
 tap 700 685 1
@@ -163,7 +163,7 @@ adb logcat -c
 start_app
 if wait_for "ui: event StreamTitle\|ui: event Position" 6 60; then ok "radio plays"; else fail "radio plays"; fi
 sleep 3
-adb shell input swipe 300 2040 300 2040 900; sleep 4
+tap 300 2040 4
 shot phone-radio-playing
 savelog radio
 
