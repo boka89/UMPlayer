@@ -166,7 +166,7 @@ export component AppWindow inherits Window {
     /// Phone: Music, Album or Artist view, with the Song / Album / Artist chips.
     property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2);
     /// Phone: Now Playing, Queue or Playlists, with the Player / Queue / Playlists chips.
-    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || (root.page == 11 && root.np-group));
+    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || ((root.page == 11 || root.page == 8) && root.np-group));
     /// Phone: which bottom tab is lit (-1: none).
     property <int> active-tab: (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 5 && !root.album-from-server)) ? 0
         : root.page == 3 ? 1
@@ -873,7 +873,7 @@ export component AppWindow inherits Window {
                         Chip { text: "Queue"; selected: root.page == 4; clicked => { root.page = 4; } }
                         Chip {
                             text: "Playlists";
-                            selected: root.page == 11;
+                            selected: root.page == 11 || root.page == 8;
                             clicked => {
                                 root.np-group = true;
                                 root.page = 11;
