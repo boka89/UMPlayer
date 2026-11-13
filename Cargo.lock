@@ -5738,7 +5738,7 @@ dependencies = [
 
 [[package]]
 name = "unitn"
-version = "0.5.14"
+version = "0.5.15"
 dependencies = [
  "anyhow",
  "directories",
@@ -5755,7 +5755,7 @@ dependencies = [
 
 [[package]]
 name = "unitn-core"
-version = "0.5.14"
+version = "0.5.15"
 dependencies = [
  "anyhow",
  "cpal",
