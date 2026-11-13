@@ -631,6 +631,38 @@ export component AppWindow inherits Window {
                             vertical-alignment: center;
                             overflow: elide;
                         }
+                        // The library is being synced with the music folders
+                        // (in the background; everything works meanwhile).
+                        if root.scanning: VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: 30px;
+                                width: sync-row.preferred-width + 24px;
+                                border-radius: 15px;
+                                background: Theme.accent-soft;
+                                sync-row := HorizontalLayout {
+                                    x: 12px;
+                                    spacing: 8px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: @image-url("icons/refresh.svg");
+                                            width: 14px;
+                                            height: 14px;
+                                            colorize: Theme.accent;
+                                            transform-rotation: Math.mod(animation-tick() / 1ms, 1000) / 1000 * 360deg;
+                                        }
+                                    }
+                                    Text {
+                                        text: "Syncing library…";
+                                        color: Theme.accent;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
                         VerticalLayout {
                             alignment: center;
                             search := SearchBox {
