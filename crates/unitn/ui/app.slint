@@ -131,11 +131,12 @@ export component AppWindow inherits Window {
 
     /// Phone-sized window: no sidebar; five tabs sit at the bottom (Music,
     /// Radio, Podcasts, Playlists, Settings) and the player bar is compact.
-    /// Page 11 is the phone's list of playlists.
+    /// Page 11 is the phone's list of playlists, page 12 its Sources
+    /// (music folders and servers).
     property <bool> phone: root.width < 720px || root.height < 520px;
     changed phone => {
         Theme.phone = root.phone;
-        if (!root.phone && root.page == 11) { root.page = 0; }
+        if (!root.phone && (root.page == 11 || root.page == 12)) { root.page = 0; }
     }
     /// The Android app on a phone (the desktop starts on Albums as before).
     property <bool> mobile-phone: Theme.mobile && root.phone;
@@ -166,7 +167,9 @@ export component AppWindow inherits Window {
     /// Phone: Music, Album or Artist view, with the Song / Album / Artist chips.
     property <bool> music-chips: root.phone && (root.page == 0 || root.page == 1 || root.page == 2);
     /// Phone: Now Playing, Queue or Playlists, with the Player / Queue / Playlists chips.
-    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || ((root.page == 11 || root.page == 8) && root.np-group));
+    property <bool> np-chips: root.phone && (root.page == 6 || root.page == 4 || root.page == 12 || ((root.page == 11 || root.page == 8) && root.np-group));
+    /// Phone: a server's albums (page 9) were opened from Sources, not Settings.
+    property <bool> server-from-sources: false;
     /// Phone: which bottom tab is lit (-1: none).
     property <int> active-tab: (root.page == 0 || root.page == 1 || root.page == 2 || (root.page == 5 && !root.album-from-server)) ? 0
         : root.page == 3 ? 1
@@ -450,7 +453,9 @@ export component AppWindow inherits Window {
         } else if (root.page == 8) {
             root.page = 11;
         } else if (root.page == 9) {
-            root.page = 7;
+            root.page = root.server-from-sources ? 12 : 7;
+        } else if (root.page == 12) {
+            root.page = 6;
         } else {
             root.page = root.music-page;
         }
@@ -773,7 +778,7 @@ export component AppWindow inherits Window {
                             overflow: elide;
                         }
                         // Phone: a search button that swaps the title for the search box.
-                        if root.phone && !root.search-open && root.page != 6 && root.page != 7 && root.page != 4 && root.page != 8 && root.page != 5 && root.page != 11: VerticalLayout {
+                        if root.phone && !root.search-open && root.page != 6 && root.page != 7 && root.page != 4 && root.page != 8 && root.page != 5 && root.page != 11 && root.page != 12: VerticalLayout {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("icons/search.svg");
@@ -879,6 +884,7 @@ export component AppWindow inherits Window {
                                 root.page = 11;
                             }
                         }
+                        Chip { text: "Sources"; selected: root.page == 12; clicked => { root.page = 12; } }
                     }
 
                     Rectangle {
@@ -909,6 +915,116 @@ export component AppWindow inherits Window {
                                     color: Theme.fg-muted;
                                     font-size: 13px;
                                     wrap: word-wrap;
+                                }
+                            }
+                        }
+                        // Phone: Sources, the music folders and servers.
+                        if root.phone && root.page == 12: src-flick := Flickable {
+                            width: parent.width;
+                            height: parent.height;
+                            content-height: Math.max(self.height, src-list.preferred-height);
+                            src-list := VerticalLayout {
+                                width: src-flick.width;
+                                alignment: start;
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 4px;
+                                padding-bottom: 24px;
+                                spacing: 2px;
+                                Text {
+                                    height: 30px;
+                                    vertical-alignment: center;
+                                    text: "FOLDERS";
+                                    color: Theme.fg-muted;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 1.2px;
+                                }
+                                for folder in root.folders: HorizontalLayout {
+                                    height: 46px;
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 12px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: @image-url("icons/folder.svg");
+                                            width: 18px;
+                                            height: 18px;
+                                            colorize: Theme.fg-muted;
+                                        }
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        min-width: 0px;
+                                        text: folder;
+                                        color: Theme.fg;
+                                        font-size: 14px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                                if root.folders.length == 0: Text {
+                                    text: "No music folders yet.";
+                                    color: Theme.fg-muted;
+                                    font-size: 13px;
+                                }
+                                HorizontalLayout {
+                                    padding-top: 8px;
+                                    spacing: 8px;
+                                    alignment: start;
+                                    PillButton {
+                                        text: Theme.mobile ? "Find my music" : "Add folder";
+                                        icon: Theme.mobile ? @image-url("icons/search.svg") : @image-url("icons/plus.svg");
+                                        clicked => { root.add-folder(); }
+                                    }
+                                    IconButton {
+                                        icon: @image-url("icons/refresh.svg");
+                                        size: 38px;
+                                        icon-size: 18px;
+                                        enabled: !root.scanning;
+                                        clicked => { root.rescan(); }
+                                    }
+                                }
+                                if root.library-status != "": Text {
+                                    text: root.library-status;
+                                    color: Theme.fg-muted;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                Rectangle { height: 16px; }
+                                Text {
+                                    height: 30px;
+                                    vertical-alignment: center;
+                                    text: "SERVERS";
+                                    color: Theme.fg-muted;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 1.2px;
+                                }
+                                for server[i] in root.servers: NavItem {
+                                    icon: @image-url("icons/server.svg");
+                                    label: server.name;
+                                    clicked => {
+                                        root.server-from-sources = true;
+                                        root.open-server(i);
+                                        root.page = 9;
+                                    }
+                                }
+                                if root.servers.length == 0: Text {
+                                    text: "No music servers yet. Add Jellyfin, Plex, Navidrome or another Subsonic server.";
+                                    color: Theme.fg-muted;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    padding-top: 8px;
+                                    alignment: start;
+                                    PillButton {
+                                        text: "Add server";
+                                        icon: @image-url("icons/plus.svg");
+                                        clicked => { root.server-dialog = true; }
+                                    }
                                 }
                             }
                         }
@@ -1096,6 +1212,7 @@ export component AppWindow inherits Window {
                             }
                             remove-server(i) => { root.remove-server(i); }
                             open-server(i) => {
+                                root.server-from-sources = false;
                                 root.open-server(i);
                                 root.page = 9;
                             }
