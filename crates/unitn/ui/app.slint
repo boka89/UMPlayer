@@ -217,6 +217,11 @@ export component AppWindow inherits Window {
     callback open-server-album(int);
     callback connect-server(int, string, string, string);
     callback close-server-dialog();
+    /// DLNA media servers found on the network, and whether the search runs.
+    in property <[string]> dlna-servers;
+    in property <bool> dlna-searching: false;
+    callback find-dlna();
+    callback pick-dlna(int);
     property <string> server-user-text;
     property <string> server-secret-text;
     callback remove-server(int);
@@ -965,7 +970,7 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 if root.servers.length == 0: Text {
-                                    text: "No music servers yet. Add Jellyfin, Plex, Navidrome or another Subsonic server.";
+                                    text: "No music servers yet. Add Jellyfin, Plex, Navidrome, another Subsonic server or a NAS's DLNA media server.";
                                     color: Theme.fg-muted;
                                     font-size: 13px;
                                     wrap: word-wrap;
@@ -976,7 +981,11 @@ export component AppWindow inherits Window {
                                     PillButton {
                                         text: "Add server";
                                         icon: @image-url("icons/plus.svg");
-                                        clicked => { root.server-dialog = true; }
+                                        clicked => {
+                                            // The new server opens with Back leading here.
+                                            root.server-from-sources = true;
+                                            root.server-dialog = true;
+                                        }
                                     }
                                 }
                             }
@@ -1161,6 +1170,7 @@ export component AppWindow inherits Window {
                             download-art: root.download-art;
                             servers: root.servers;
                             add-server => {
+                                root.server-from-sources = false;
                                 root.server-dialog = true;
                             }
                             remove-server(i) => { root.remove-server(i); }
@@ -1791,7 +1801,10 @@ export component AppWindow inherits Window {
         background: #00000080;
         TouchArea { }
         FocusScope {
-            init => { self.focus(); }
+            init => {
+                self.focus();
+                if (root.server-kind == 3) { root.find-dlna(); }
+            }
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
                     root.close-server-dialog();
@@ -1801,7 +1814,7 @@ export component AppWindow inherits Window {
             }
         }
         Rectangle {
-            width: Math.min(480px, root.width - (root.phone ? 24px : 48px));
+            width: Math.min(480px, root.width - (root.phone ? 16px : 48px));
             height: server-box.preferred-height;
             // Phone: near the top, so the on-screen keyboard doesn't cover it.
             y: root.phone ? root.safe-area-insets.top + 24px : (parent.height - self.height) / 2;
@@ -1813,7 +1826,9 @@ export component AppWindow inherits Window {
             drop-shadow-color: #00000060;
             TouchArea { }
             server-box := VerticalLayout {
-                padding: 22px;
+                // Phone: a little narrower padding, so the four server
+                // types fit in one row on small (360 px) screens.
+                padding: root.phone ? 16px : 22px;
                 spacing: 12px;
                 Text {
                     text: "Add a music server";
@@ -1822,19 +1837,57 @@ export component AppWindow inherits Window {
                     font-weight: 700;
                 }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: root.phone ? 6px : 8px;
                     alignment: start;
                     Chip { text: "Jellyfin"; selected: root.server-kind == 0; clicked => { root.server-kind = 0; } }
                     Chip { text: "Plex"; selected: root.server-kind == 1; clicked => { root.server-kind = 1; } }
                     Chip { text: root.phone ? "Navidrome" : "Navidrome / Subsonic"; selected: root.server-kind == 2; clicked => { root.server-kind = 2; } }
+                    Chip {
+                        text: "DLNA";
+                        selected: root.server-kind == 3;
+                        clicked => {
+                            if (root.server-kind != 3) {
+                                root.server-kind = 3;
+                                root.find-dlna();
+                            }
+                        }
+                    }
+                }
+                // DLNA: the media servers found on the network.
+                if root.server-kind == 3: VerticalLayout {
+                    spacing: 2px;
+                    for name[i] in root.dlna-servers: NavItem {
+                        icon: @image-url("icons/server.svg");
+                        label: name;
+                        clicked => { root.pick-dlna(i); }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            vertical-alignment: center;
+                            text: root.dlna-searching ? "Looking for media servers…"
+                                : root.dlna-servers.length == 0 ? "No new media servers found."
+                                : "Tap a server to add it.";
+                            color: Theme.fg-muted;
+                            font-size: 12px;
+                        }
+                        if !root.dlna-searching: IconButton {
+                            icon: @image-url("icons/refresh.svg");
+                            size: 30px;
+                            icon-size: 15px;
+                            clicked => { root.find-dlna(); }
+                        }
+                    }
                 }
                 server-url := TextField {
                     placeholder: root.server-kind == 0 ? "Address, e.g. 192.168.1.10 or http://nas:8096"
                         : root.server-kind == 2 ? "Address, e.g. 192.168.1.10 or http://nas:4533"
+                        : root.server-kind == 3 ? "Or enter its address, e.g. 192.168.1.20"
                         : "Server address (optional, found automatically)";
                     accepted => { root.connect-server(root.server-kind, server-url.text, root.server-user-text, root.server-secret-text); }
                 }
-                if root.server-kind != 1: VerticalLayout {
+                if root.server-kind == 0 || root.server-kind == 2: VerticalLayout {
                     spacing: 12px;
                     TextField {
                         placeholder: "User name";
@@ -1853,6 +1906,8 @@ export component AppWindow inherits Window {
                             ? "Your password is only used to sign in; Unitn keeps the access token the server gives it."
                         : root.server-kind == 2
                             ? "Works with Navidrome, Gonic, Airsonic and other OpenSubsonic servers. Unitn keeps a salted token, never your password."
+                        : root.server-kind == 3
+                            ? "The media server built into most NAS boxes (e.g. Twonky, MiniDLNA). No password needed."
                             : "You sign in on plex.tv in your browser, so two-factor sign-in works. Leave the address empty to find your server automatically.";
                     color: root.server-dialog-status != "" ? Theme.fg : Theme.fg-muted;
                     font-size: 12px;

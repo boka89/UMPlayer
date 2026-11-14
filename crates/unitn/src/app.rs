@@ -19,7 +19,7 @@ use unitn_core::lyrics::{self, Lyrics};
 use unitn_core::podcasts::{self, Show};
 use unitn_core::model::{Album, Artist, Playlist, Station, Track};
 use unitn_core::radio::RadioBrowser;
-use unitn_core::servers::{self, ServerAlbum, ServerConfig, ServerKind};
+use unitn_core::servers::{self, DlnaServer, ServerAlbum, ServerConfig, ServerKind};
 use unitn_core::log::log;
 use unitn_core::util::format_time;
 
@@ -60,6 +60,8 @@ enum Bg {
     FixSaved(Result<(String, String, bool), String>),
     /// Signing in to a new server finished.
     ServerConnected(Result<ServerConfig, String>),
+    /// The search for DLNA media servers on the network finished.
+    DlnaFound { request: u64, servers: Vec<DlnaServer> },
     /// Songs found on the music servers for a library search.
     ServerSearch { request: u64, tracks: Vec<Track> },
     /// Lyrics lookup finished (`lyrics` is `None` when there are none).
@@ -287,6 +289,9 @@ pub struct App {
     server_request: Arc<AtomicU64>,
     /// Current "Sign in with Plex" attempt; bumping it cancels the old one.
     plex_login: Arc<AtomicU64>,
+    /// DLNA media servers found on the network (for the "Add server" dialog).
+    dlna_found: Vec<DlnaServer>,
+    dlna_request: u64,
     /// Current library search, so late server results can be ignored.
     search_request: Arc<AtomicU64>,
     /// Lyrics of the current song, and the song they were asked for.
@@ -411,6 +416,8 @@ impl App {
             server: ServerView::default(),
             server_request: Arc::new(AtomicU64::new(0)),
             plex_login: Arc::new(AtomicU64::new(0)),
+            dlna_found: Vec::new(),
+            dlna_request: 0,
             search_request: Arc::new(AtomicU64::new(0)),
             lyrics: None,
             lyrics_for: None,
@@ -889,6 +896,7 @@ impl App {
             }
             Bg::FixResults { request, result } => self.on_fix_results(request, result),
             Bg::ServerConnected(result) => self.on_server_connected(result),
+            Bg::DlnaFound { request, servers } => self.on_dlna_found(request, servers),
             Bg::PlexWaiting { login, code, opened } => self.on_plex_waiting(login, code, opened),
             Bg::PlexApproved { login } => {
                 if login == self.plex_login.load(Ordering::SeqCst) {
@@ -1742,13 +1750,24 @@ impl App {
             self.sign_in_with_plex(url);
             return;
         }
+        let mut url = url;
+        if kind == 3 && url.trim().is_empty() && self.dlna_found.len() == 1 {
+            url = self.dlna_found[0].location.clone();
+        }
         if url.trim().is_empty() {
             if let Some(ui) = self.ui() {
-                ui.set_server_dialog_status("Enter the server's address.".into());
+                ui.set_server_dialog_status(
+                    if kind == 3 { "Pick a server from the list, or enter its address." } else { "Enter the server's address." }
+                        .into(),
+                );
             }
             return;
         }
-        let kind = if kind == 2 { ServerKind::Subsonic } else { ServerKind::Jellyfin };
+        let kind = match kind {
+            2 => ServerKind::Subsonic,
+            3 => ServerKind::Dlna,
+            _ => ServerKind::Jellyfin,
+        };
         if let Some(ui) = self.ui() {
             ui.set_server_connecting(true);
             ui.set_server_dialog_status(format!("Connecting to {}…", kind.label()).into());
@@ -1824,6 +1843,44 @@ impl App {
         };
         if let Some(ui) = self.ui() {
             ui.set_server_dialog_status(text.into());
+        }
+    }
+
+    /// Looks for DLNA media servers on the network (the "Add server"
+    /// dialog's DLNA choice).
+    pub fn find_dlna(&mut self) {
+        self.dlna_request += 1;
+        let request = self.dlna_request;
+        if let Some(ui) = self.ui() {
+            ui.set_dlna_searching(true);
+            ui.set_server_dialog_status(SharedString::new());
+        }
+        let tx = self.bg_tx.clone();
+        thread::spawn(move || {
+            let servers = servers::dlna_discover(Duration::from_secs(3));
+            log(format!("servers: {} DLNA media servers found", servers.len()));
+            let _ = tx.send(Bg::DlnaFound { request, servers });
+        });
+    }
+
+    fn on_dlna_found(&mut self, request: u64, servers: Vec<DlnaServer>) {
+        if request != self.dlna_request {
+            return;
+        }
+        // Hide the ones already added.
+        let added: Vec<&str> =
+            self.settings.servers.iter().filter(|c| c.kind == ServerKind::Dlna).map(|c| c.device_id.as_str()).collect();
+        self.dlna_found = servers.into_iter().filter(|s| !added.contains(&s.location.as_str())).collect();
+        if let Some(ui) = self.ui() {
+            ui.set_dlna_searching(false);
+            ui.set_dlna_servers(model(self.dlna_found.iter().map(|s| SharedString::from(s.name.as_str())).collect()));
+        }
+    }
+
+    /// A media server found on the network was tapped.
+    pub fn pick_dlna(&mut self, index: usize) {
+        if let Some(location) = self.dlna_found.get(index).map(|s| s.location.clone()) {
+            self.connect_server(3, location, String::new(), String::new());
         }
     }
 
@@ -3706,6 +3763,8 @@ pub fn connect(ui: &AppWindow, app: &Rc<RefCell<App>>) {
     on!(on_remove_server, |a, i| a.remove_server(i.max(0) as usize));
     on!(on_connect_server, |a, kind, url, user, secret| a.connect_server(kind, url.to_string(), user.to_string(), secret.to_string()));
     on!(on_close_server_dialog, |a| a.close_server_dialog());
+    on!(on_find_dlna, |a| a.find_dlna());
+    on!(on_pick_dlna, |a, i| a.pick_dlna(i.max(0) as usize));
     on!(on_crossfade_changed, |a, secs| a.set_crossfade(secs));
     on!(on_gapless_albums_changed, |a, on| a.set_gapless_albums(on));
     on!(on_lyrics_online_changed, |a, on| a.set_lyrics_online(on));

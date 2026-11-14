@@ -167,9 +167,13 @@ fn child_text(node: roxmltree::Node, name: &str) -> String {
 }
 
 fn describe(location: &str) -> Result<Description> {
-    let xml = agent()
-        .get(location)
+    // Short timeouts: when an address is typed in, several places are tried.
+    let xml = ureq::AgentBuilder::new()
+        .user_agent(crate::USER_AGENT)
+        .timeout_connect(Duration::from_secs(3))
         .timeout(Duration::from_secs(8))
+        .build()
+        .get(location)
         .call()
         .map_err(|e| explain(e, "DLNA"))?
         .into_string()?;
@@ -207,17 +211,26 @@ pub fn connect(input: &str) -> Result<ServerConfig> {
     if full[origin_of(&full).len()..].len() > 1 {
         candidates.push(full.clone());
     }
+    let typed_port = host.rsplit_once(':').map(|(_, p)| p.to_string());
     // Ask that host directly where its description is.
-    if let Some(addr) = (bare_host.as_str(), 1900).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+    let addr = (bare_host.as_str(), 1900).to_socket_addrs().ok().and_then(|mut a| a.find(|a| a.is_ipv4()));
+    if let Some(addr) = addr {
         candidates.extend(ssdp_search(addr, Duration::from_millis(1500), true));
     }
-    for known in KNOWN_DESCRIPTIONS {
-        let (port, path) = known.split_at(known.find('/').unwrap_or(known.len()));
-        if host.contains(':') {
-            // A port was typed: try the known paths on that port.
-            candidates.push(format!("http://{host}{path}"));
-        } else {
-            candidates.push(format!("http://{bare_host}{port}{path}"));
+    // Some servers (MiniDLNA) only answer requests addressed to their IP
+    // address, not to a host name: try the IP address first.
+    let mut hosts = vec![bare_host.clone()];
+    if let Some(addr) = addr {
+        hosts.insert(0, addr.ip().to_string());
+    }
+    for h in &hosts {
+        for known in KNOWN_DESCRIPTIONS {
+            let (port, path) = known.split_at(known.find('/').unwrap_or(known.len()));
+            match &typed_port {
+                // A port was typed: try the known paths on that port.
+                Some(p) => candidates.push(format!("http://{h}:{p}{path}")),
+                None => candidates.push(format!("http://{h}{port}{path}")),
+            }
         }
     }
     let mut first_err: Option<anyhow::Error> = None;
