@@ -1,0 +1,4 @@
+strong code: 25 characters
+link code: Some("93H3")
+sign-in page: https://app.plex.tv/auth#?clientID=unitn-de2286a5dde4a06b&code=<code>&context%5Bdevice%5D%5Bproduct%5D=Unitn%20player
+RESULT plex sign-in: OK (strong code 25 chars, link code 93H3)

@@ -1,0 +1,3 @@
+Window 4194307
+  Position: 0,0 (screen: 0)
+  Geometry: 960x620
