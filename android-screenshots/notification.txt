@@ -1,0 +1,34 @@
+    NotificationRecord(0x0bdeed17: pkg=net.bokors.unitn user=UserHandle{0} id=1 tag=null importance=2 key=0|net.bokors.unitn|1|null|10141: Notification(channel=playback shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x206a color=0x00000000 category=transport actions=3 vis=PUBLIC))
+      uid=10141 userId=0
+      opPkg=net.bokors.unitn
+      icon=Icon(typ=RESOURCE pkg=net.bokors.unitn id=0x01080024)
+      flags=0x206a
+      originalFlags=0x204a
+      pri=0
+      key=0|net.bokors.unitn|1|null|10141
+      seen=false
+      groupKey=0|net.bokors.unitn|1|null|10141
+      notification=
+            fullscreenIntent=null
+            contentIntent=PendingIntent{f22504: PendingIntentRecord{f89a931 net.bokors.unitn startActivity (allowlist: 31c23ee:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+            deleteIntent=null
+            number=0
+            groupAlertBehavior=0
+            when=1794615579733
+            tickerText=null
+            vis=1
+            contentView=null
+            bigContentView=null
+            headsUpContentView=null
+            color=0x00000000
+            timeout=unknown
+            actions={
+                [0] "Previous" -> PendingIntent{3792aed: PendingIntentRecord{e8061d8 net.bokors.unitn startService (allowlist: 31c23ee:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+                [1] "Pause" -> PendingIntent{5f9ad22: PendingIntentRecord{40788bb net.bokors.unitn startService (allowlist: 31c23ee:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+                [2] "Next" -> PendingIntent{85b43b3: PendingIntentRecord{717414a net.bokors.unitn startService (allowlist: 31c23ee:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+              }
+            extras={
+                android.title=String (Second Wind)
+                android.reduced.images=Boolean (true)
+                android.template=String (android.app.Notification$MediaStyle)
+                android.text=String (The Test Tones)

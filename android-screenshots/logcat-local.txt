@@ -1,0 +1,167 @@
+--------- beginning of main
+11-14 00:19:15.076  2404  2424 I unitn   : [   0.000] Unitn 0.6.0 on android x86_64
+11-14 00:19:15.130  2404  2424 I unitn   : [   0.054] startup: creating window
+11-14 00:19:15.132  2404  2424 I unitn   : [   0.056] startup: window shown
+11-14 00:19:15.134  2404  2424 I unitn   : [   0.057] startup: ready
+11-14 00:19:15.213  2404  2436 I unitn   : [   0.137] art: looking up 1 albums online
+11-14 00:19:15.688  2404  2424 I unitn   : [   0.612] ui: autoplay /sdcard/Music/TT/ES/1.wav,/sdcard/Music/TT/ES/2.wav,/sdcard/Music/TT/ES/3.wav
+11-14 00:19:15.697  2404  2426 I unitn   : [   0.621] audio: load File("/sdcard/Music/TT/ES/1.wav")
+11-14 00:19:15.718  2404  2426 I unitn   : [   0.642] audio: output device "default", F32, 2 ch, 44100 Hz
+11-14 00:19:15.749  2404  2454 I unitn   : [   0.672] audio: preloading 4.0 MB
+11-14 00:19:15.749  2404  2455 I unitn   : [   0.672] audio: preloading 4.0 MB
+11-14 00:19:15.764  2404  2426 I unitn   : [   0.687] audio: next track prepared
+11-14 00:19:15.765  2404  2426 I unitn   : [   0.688] audio: source ready, duration Some(24.0)
+11-14 00:19:15.765  2404  2426 I unitn   : [   0.688] audio: first chunk 2304 samples, 2 ch, 44100 Hz -> device 2 ch, 44100 Hz
+11-14 00:19:15.785  2404  2424 I unitn   : [   0.708] ui: event State(Buffering)
+11-14 00:19:15.799  2404  2424 I unitn   : [   0.723] ui: event Position { position: 0.0, duration: Some(24.0) }
+11-14 00:19:15.799  2404  2424 I unitn   : [   0.723] ui: event State(Playing)
+11-14 00:19:16.127  2404  2448 I unitn   : [   1.050] art: artist photo for The Test Tones failed: https://musicbrainz.org/ws/2/artist/?query=artist%3A%22The+Test+Tones%22&fmt=json&limit=3: status code 503
+11-14 00:19:16.797  2404  2424 I unitn   : [   1.721] ui: event Position { position: 1.0917006802721088, duration: Some(24.0) }
+11-14 00:19:17.800  2404  2424 I unitn   : [   2.724] ui: event Position { position: 2.092426303854875, duration: Some(24.0) }
+11-14 00:19:18.843  2404  2424 I unitn   : [   3.767] ui: event Position { position: 3.127981859410431, duration: Some(24.0) }
+11-14 00:19:19.847  2404  2424 I unitn   : [   4.771] ui: event Position { position: 4.13936507936508, duration: Some(24.0) }
+11-14 00:19:20.852  2404  2424 I unitn   : [   5.776] ui: event Position { position: 5.1400907029478455, duration: Some(24.0) }
+11-14 00:19:21.883  2404  2424 I unitn   : [   6.807] ui: event Position { position: 6.12, duration: Some(24.0) }
+11-14 00:19:22.872  2404  2424 I unitn   : [   7.796] ui: event Position { position: 7.14, duration: Some(24.0) }
+11-14 00:19:23.911  2404  2424 I unitn   : [   8.834] ui: event Position { position: 8.187755102040816, duration: Some(24.0) }
+11-14 00:19:24.928  2404  2424 I unitn   : [   9.852] ui: event Position { position: 9.18, duration: Some(24.0) }
+11-14 00:19:24.969  2404  2424 I unitn   : [   9.893] likes: added /sdcard/Music/TT/ES/1.wav
+11-14 00:19:25.942  2404  2424 I unitn   : [  10.866] ui: event Position { position: 10.23469387755102, duration: Some(24.0) }
+11-14 00:19:26.734  2404  2424 I unitn   : [  11.658] ui: event Position { position: 11.007981859410432, duration: Some(24.0) }
+11-14 00:19:27.733  2404  2424 I unitn   : [  12.656] ui: event Position { position: 12.008707482993197, duration: Some(24.0) }
+11-14 00:19:28.748  2404  2424 I unitn   : [  13.671] ui: event Position { position: 13.054920634920634, duration: Some(24.0) }
+11-14 00:19:29.750  2404  2424 I unitn   : [  14.674] ui: event Position { position: 14.055646258503401, duration: Some(24.0) }
+11-14 00:19:30.792  2404  2424 I unitn   : [  15.716] ui: event Position { position: 15.056371882086168, duration: Some(24.0) }
+11-14 00:19:31.792  2404  2424 I unitn   : [  16.715] ui: event Position { position: 16.057097505668935, duration: Some(24.0) }
+11-14 00:19:32.794  2404  2424 I unitn   : [  17.717] ui: event Position { position: 17.090657596371884, duration: Some(24.0) }
+11-14 00:19:33.797  2404  2424 I unitn   : [  18.721] ui: event Position { position: 18.08798185941043, duration: Some(24.0) }
+11-14 00:19:34.798  2404  2424 I unitn   : [  19.721] ui: event Position { position: 19.104761904761904, duration: Some(24.0) }
+11-14 00:19:35.839  2404  2424 I unitn   : [  20.763] ui: event Position { position: 20.10548752834467, duration: Some(24.0) }
+11-14 00:19:36.720  2404  2426 I unitn   : [  21.644] audio: gapless switch to the next track
+11-14 00:19:36.720  2404  2426 I unitn   : [  21.644] audio: first chunk 2304 samples, 2 ch, 44100 Hz -> device 2 ch, 44100 Hz
+11-14 00:19:36.840  2404  2424 I unitn   : [  21.764] ui: event Position { position: 21.106213151927438, duration: Some(24.0) }
+11-14 00:19:37.841  2404  2424 I unitn   : [  22.765] ui: event Position { position: 22.106938775510205, duration: Some(24.0) }
+11-14 00:19:38.843  2404  2424 I unitn   : [  23.766] ui: event Position { position: 23.14265306122449, duration: Some(24.0) }
+11-14 00:19:39.726  2404  2424 I unitn   : [  24.649] ui: event Advanced
+11-14 00:19:39.726  2404  2424 I unitn   : [  24.650] ui: event Position { position: 0.0, duration: Some(24.0) }
+11-14 00:19:39.736  2404  2560 I unitn   : [  24.660] audio: preloading 4.0 MB
+11-14 00:19:39.743  2404  2426 I unitn   : [  24.666] audio: next track prepared
+11-14 00:19:40.892  2404  2424 I unitn   : [  25.816] ui: event Position { position: 1.1373242630385487, duration: Some(24.0) }
+11-14 00:19:41.895  2404  2424 I unitn   : [  26.819] ui: event Position { position: 2.1346485260770973, duration: Some(24.0) }
+11-14 00:19:42.896  2404  2424 I unitn   : [  27.819] ui: event Position { position: 3.2, duration: Some(24.0) }
+11-14 00:19:43.905  2404  2424 I unitn   : [  28.829] ui: event Position { position: 4.197324263038548, duration: Some(24.0) }
+11-14 00:19:44.923  2404  2424 I unitn   : [  29.847] ui: event Position { position: 5.202993197278912, duration: Some(24.0) }
+11-14 00:19:45.974  2404  2424 I unitn   : [  30.897] ui: event Position { position: 6.249206349206349, duration: Some(24.0) }
+11-14 00:19:46.772  2404  2424 I unitn   : [  31.696] ui: event Position { position: 7.02249433106576, duration: Some(24.0) }
+11-14 00:19:47.800  2404  2424 I unitn   : [  32.724] ui: event Position { position: 8.023219954648527, duration: Some(24.0) }
+11-14 00:19:48.521  2404  2424 I unitn   : [  33.444] ui: event State(Paused)
+11-14 00:19:49.563  2404  2424 I unitn   : [  34.487] ui: event State(Playing)
+11-14 00:19:49.844  2404  2424 I unitn   : [  34.768] ui: event Position { position: 9.070181405895692, duration: Some(24.0) }
+11-14 00:19:51.063  2404  2424 I unitn   : [  35.986] ui: event Position { position: 10.065668934240362, duration: Some(24.0) }
+11-14 00:19:51.869  2404  2424 I unitn   : [  36.793] ui: event Position { position: 11.117120181405896, duration: Some(24.0) }
+11-14 00:19:52.908  2404  2424 I unitn   : [  37.831] ui: event Position { position: 12.151020408163266, duration: Some(24.0) }
+11-14 00:19:53.901  2404  2424 I unitn   : [  38.824] ui: event Position { position: 13.164058956916099, duration: Some(24.0) }
+11-14 00:19:54.944  2404  2424 I unitn   : [  39.867] ui: event Position { position: 14.164784580498866, duration: Some(24.0) }
+11-14 00:19:55.947  2404  2424 I unitn   : [  40.870] ui: event Position { position: 15.210997732426303, duration: Some(24.0) }
+11-14 00:19:56.973  2404  2424 I unitn   : [  41.897] ui: event Position { position: 16.21172335600907, duration: Some(24.0) }
+11-14 00:19:57.973  2404  2424 I unitn   : [  42.897] ui: event Position { position: 17.212448979591837, duration: Some(24.0) }
+11-14 00:19:58.975  2404  2424 I unitn   : [  43.899] ui: event Position { position: 18.248344671201814, duration: Some(24.0) }
+11-14 00:19:59.982  2404  2424 I unitn   : [  44.905] ui: event Position { position: 19.25938775510204, duration: Some(24.0) }
+11-14 00:20:01.025  2404  2424 I unitn   : [  45.948] ui: event Position { position: 20.260113378684807, duration: Some(24.0) }
+11-14 00:20:01.760  2404  2426 I unitn   : [  46.683] audio: gapless switch to the next track
+11-14 00:20:01.760  2404  2426 I unitn   : [  46.683] audio: first chunk 2304 samples, 2 ch, 44100 Hz -> device 2 ch, 44100 Hz
+11-14 00:20:01.789  2404  2424 I unitn   : [  46.713] ui: event Position { position: 21.033401360544218, duration: Some(24.0) }
+11-14 00:20:02.793  2404  2424 I unitn   : [  47.716] ui: event Position { position: 22.033673469387754, duration: Some(24.0) }
+11-14 00:20:03.802  2404  2424 I unitn   : [  48.726] ui: event Position { position: 23.031020408163265, duration: Some(24.0) }
+11-14 00:20:04.762  2404  2424 I unitn   : [  49.686] ui: event Advanced
+11-14 00:20:04.763  2404  2424 I unitn   : [  49.687] ui: event Position { position: 0.0, duration: Some(24.0) }
+11-14 00:20:05.842  2404  2424 I unitn   : [  50.766] ui: event Position { position: 1.0817913832199546, duration: Some(24.0) }
+11-14 00:20:06.847  2404  2424 I unitn   : [  51.770] ui: event Position { position: 2.0825170068027212, duration: Some(24.0) }
+11-14 00:20:07.850  2404  2424 I unitn   : [  52.774] ui: event Position { position: 3.1110204081632653, duration: Some(24.0) }
+11-14 00:20:08.891  2404  2424 I unitn   : [  53.815] ui: event Position { position: 4.108344671201814, duration: Some(24.0) }
+11-14 00:20:09.900  2404  2424 I unitn   : [  54.824] ui: event Position { position: 5.130181405895692, duration: Some(24.0) }
+11-14 00:20:10.900  2404  2424 I unitn   : [  55.824] ui: event Position { position: 6.171020408163265, duration: Some(24.0) }
+11-14 00:20:11.943  2404  2424 I unitn   : [  56.867] ui: event Position { position: 7.168344671201814, duration: Some(24.0) }
+11-14 00:20:12.928  2404  2424 I unitn   : [  57.852] ui: event Position { position: 8.165668934240363, duration: Some(24.0) }
+11-14 00:20:13.943  2404  2424 I unitn   : [  58.866] ui: event Position { position: 9.163015873015873, duration: Some(24.0) }
+11-14 00:20:14.985  2404  2424 I unitn   : [  59.908] ui: event Position { position: 10.224784580498866, duration: Some(24.0) }
+11-14 00:20:15.969  2404  2424 I unitn   : [  60.893] ui: event Position { position: 11.225510204081633, duration: Some(24.0) }
+11-14 00:20:17.012  2404  2424 I unitn   : [  61.935] ui: event Position { position: 12.223015873015873, duration: Some(24.0) }
+11-14 00:20:18.009  2404  2424 I unitn   : [  62.933] ui: event Position { position: 13.272448979591836, duration: Some(24.0) }
+11-14 00:20:18.266  2404  2424 I unitn   : [  63.189] songs: 1 picked
+11-14 00:20:18.799  2404  2424 I unitn   : [  63.723] ui: event Position { position: 14.036349206349206, duration: Some(24.0) }
+11-14 00:20:19.804  2404  2424 I unitn   : [  64.728] ui: event Position { position: 15.046462585034014, duration: Some(24.0) }
+11-14 00:20:20.827  2404  2424 I unitn   : [  65.751] ui: event Position { position: 16.04718820861678, duration: Some(24.0) }
+11-14 00:20:21.832  2404  2424 I unitn   : [  66.756] ui: event Position { position: 17.047913832199548, duration: Some(24.0) }
+11-14 00:20:22.833  2404  2424 I unitn   : [  67.756] ui: event Position { position: 18.093673469387756, duration: Some(24.0) }
+11-14 00:20:23.865  2404  2424 I unitn   : [  68.789] ui: event Position { position: 19.091020408163267, duration: Some(24.0) }
+11-14 00:20:24.516  2404  2424 I unitn   : [  69.439] songs: swiped right with 1 song(s)
+11-14 00:20:24.516  2404  2424 I unitn   : [  69.439] queue: 1 added next
+11-14 00:20:24.536  2404  2741 I unitn   : [  69.460] audio: preloading 4.0 MB
+11-14 00:20:24.546  2404  2426 I unitn   : [  69.469] audio: next track prepared
+11-14 00:20:24.884  2404  2424 I unitn   : [  69.808] ui: event Position { position: 20.088344671201813, duration: Some(24.0) }
+11-14 00:20:25.789  2404  2426 I unitn   : [  70.712] audio: gapless switch to the next track
+11-14 00:20:25.789  2404  2426 I unitn   : [  70.713] audio: first chunk 2304 samples, 2 ch, 44100 Hz -> device 2 ch, 44100 Hz
+11-14 00:20:25.894  2404  2424 I unitn   : [  70.817] ui: event Position { position: 21.141791383219953, duration: Some(24.0) }
+11-14 00:20:26.898  2404  2424 I unitn   : [  71.822] ui: event Position { position: 22.128344671201813, duration: Some(24.0) }
+11-14 00:20:27.935  2404  2424 I unitn   : [  72.858] ui: event Position { position: 23.171020408163265, duration: Some(24.0) }
+11-14 00:20:28.740  2404  2424 I unitn   : [  73.664] ui: event Advanced
+11-14 00:20:28.740  2404  2424 I unitn   : [  73.664] ui: event Position { position: 0.0, duration: Some(24.0) }
+11-14 00:20:29.475  2404  2424 I unitn   : [  74.398] songs: swiped left with 1 song(s)
+11-14 00:20:29.475  2404  2424 I unitn   : [  74.398] queue: 1 added at the end
+11-14 00:20:29.485  2404  2784 I unitn   : [  74.409] audio: preloading 4.0 MB
+11-14 00:20:29.498  2404  2426 I unitn   : [  74.421] audio: next track prepared
+11-14 00:20:29.997  2404  2424 I unitn   : [  74.921] ui: event Position { position: 1.2336734693877551, duration: Some(24.0) }
+11-14 00:20:30.745  2404  2424 I unitn   : [  75.668] ui: event Position { position: 2.004353741496599, duration: Some(24.0) }
+11-14 00:20:31.760  2404  2424 I unitn   : [  76.684] ui: event Position { position: 3.0016780045351474, duration: Some(24.0) }
+11-14 00:20:33.044  2404  2424 I unitn   : [  77.968] ui: event Position { position: 4.271020408163265, duration: Some(24.0) }
+11-14 00:20:33.807  2404  2424 I unitn   : [  78.731] ui: event Position { position: 5.056621315192744, duration: Some(24.0) }
+11-14 00:20:34.828  2404  2424 I unitn   : [  79.752] ui: event Position { position: 6.057346938775511, duration: Some(24.0) }
+11-14 00:20:35.830  2404  2424 I unitn   : [  80.753] ui: event Position { position: 7.0580725623582765, duration: Some(24.0) }
+11-14 00:20:36.832  2404  2424 I unitn   : [  81.755] ui: event Position { position: 8.101678004535147, duration: Some(24.0) }
+11-14 00:20:37.872  2404  2424 I unitn   : [  82.796] ui: event Position { position: 9.099002267573697, duration: Some(24.0) }
+11-14 00:20:38.878  2404  2424 I unitn   : [  83.801] ui: event Position { position: 10.096349206349206, duration: Some(24.0) }
+11-14 00:20:39.879  2404  2424 I unitn   : [  84.803] ui: event Position { position: 11.093673469387754, duration: Some(24.0) }
+11-14 00:20:40.882  2404  2424 I unitn   : [  85.806] ui: event Position { position: 12.15267573696145, duration: Some(24.0) }
+11-14 00:20:41.924  2404  2424 I unitn   : [  86.848] ui: event Position { position: 13.153401360544217, duration: Some(24.0) }
+11-14 00:20:42.908  2404  2424 I unitn   : [  87.831] ui: event Position { position: 14.153673469387755, duration: Some(24.0) }
+11-14 00:20:43.935  2404  2424 I unitn   : [  88.859] ui: event Position { position: 15.151020408163266, duration: Some(24.0) }
+11-14 00:20:44.965  2404  2424 I unitn   : [  89.889] ui: event Position { position: 16.20106575963719, duration: Some(24.0) }
+11-14 00:20:45.966  2404  2424 I unitn   : [  90.890] ui: event Position { position: 17.236349206349207, duration: Some(24.0) }
+11-14 00:20:47.008  2404  2424 I unitn   : [  91.931] ui: event Position { position: 18.24800453514739, duration: Some(24.0) }
+11-14 00:20:48.008  2404  2424 I unitn   : [  92.932] ui: event Position { position: 19.248730158730158, duration: Some(24.0) }
+11-14 00:20:48.770  2404  2424 I unitn   : [  93.693] ui: event Position { position: 20.001678004535147, duration: Some(24.0) }
+11-14 00:20:49.751  2404  2426 I unitn   : [  94.675] audio: gapless switch to the next track
+11-14 00:20:49.752  2404  2426 I unitn   : [  94.675] audio: first chunk 2304 samples, 2 ch, 44100 Hz -> device 2 ch, 44100 Hz
+11-14 00:20:49.771  2404  2424 I unitn   : [  94.695] ui: event Position { position: 21.021678004535147, duration: Some(24.0) }
+11-14 00:20:50.777  2404  2424 I unitn   : [  95.701] ui: event Position { position: 22.019002267573697, duration: Some(24.0) }
+11-14 00:20:51.820  2404  2424 I unitn   : [  96.743] ui: event Position { position: 23.016349206349208, duration: Some(24.0) }
+11-14 00:20:52.741  2404  2424 I unitn   : [  97.664] ui: event Advanced
+11-14 00:20:52.741  2404  2424 I unitn   : [  97.665] ui: event Position { position: 0.0, duration: Some(24.0) }
+11-14 00:20:53.841  2404  2424 I unitn   : [  98.765] ui: event Position { position: 1.0711337868480726, duration: Some(24.0) }
+11-14 00:20:54.846  2404  2424 I unitn   : [  99.769] ui: event Position { position: 2.099002267573696, duration: Some(24.0) }
+11-14 00:20:55.850  2404  2424 I unitn   : [ 100.773] ui: event Position { position: 3.1180725623582766, duration: Some(24.0) }
+11-14 00:20:56.890  2404  2424 I unitn   : [ 101.814] ui: event Position { position: 4.118798185941043, duration: Some(24.0) }
+11-14 00:20:57.893  2404  2424 I unitn   : [ 102.816] ui: event Position { position: 5.11952380952381, duration: Some(24.0) }
+11-14 00:20:58.895  2404  2424 I unitn   : [ 103.819] ui: event Position { position: 6.156349206349207, duration: Some(24.0) }
+11-14 00:20:59.897  2404  2424 I unitn   : [ 104.820] ui: event Position { position: 7.153673469387755, duration: Some(24.0) }
+11-14 00:21:00.936  2404  2424 I unitn   : [ 105.860] ui: event Position { position: 8.151020408163266, duration: Some(24.0) }
+11-14 00:21:01.937  2404  2424 I unitn   : [ 106.861] ui: event Position { position: 9.148344671201814, duration: Some(24.0) }
+11-14 00:21:02.941  2404  2424 I unitn   : [ 107.864] ui: event Position { position: 10.213673469387755, duration: Some(24.0) }
+11-14 00:21:03.983  2404  2424 I unitn   : [ 108.906] ui: event Position { position: 11.211020408163265, duration: Some(24.0) }
+11-14 00:21:04.990  2404  2424 I unitn   : [ 109.914] ui: event Position { position: 12.208344671201814, duration: Some(24.0) }
+11-14 00:21:05.990  2404  2424 I unitn   : [ 110.914] ui: event Position { position: 13.261791383219954, duration: Some(24.0) }
+11-14 00:21:06.753  2404  2424 I unitn   : [ 111.677] ui: event Position { position: 14.021678004535147, duration: Some(24.0) }
+11-14 00:21:07.797  2404  2424 I unitn   : [ 112.720] ui: event Position { position: 15.019002267573697, duration: Some(24.0) }
+11-14 00:21:08.804  2404  2424 I unitn   : [ 113.728] ui: event Position { position: 16.016349206349208, duration: Some(24.0) }
+11-14 00:21:09.805  2404  2424 I unitn   : [ 114.728] ui: event Position { position: 17.081678004535146, duration: Some(24.0) }
+11-14 00:21:10.808  2404  2424 I unitn   : [ 115.732] ui: event Position { position: 18.079002267573696, duration: Some(24.0) }
+11-14 00:21:11.860  2404  2424 I unitn   : [ 116.783] ui: event Position { position: 19.076349206349207, duration: Some(24.0) }
+11-14 00:21:12.862  2404  2424 I unitn   : [ 117.786] ui: event Position { position: 20.084920634920636, duration: Some(24.0) }
+11-14 00:21:13.863  2404  2424 I unitn   : [ 118.787] ui: event Position { position: 21.116349206349206, duration: Some(24.0) }
+11-14 00:21:14.907  2404  2424 I unitn   : [ 119.831] ui: event Position { position: 22.113673469387756, duration: Some(24.0) }
+11-14 00:21:15.911  2404  2424 I unitn   : [ 120.835] ui: event Position { position: 23.132585034013605, duration: Some(24.0) }
+11-14 00:21:16.753  2404  2426 I unitn   : [ 121.677] audio: ended
+11-14 00:21:16.793  2404  2424 I unitn   : [ 121.717] ui: event Ended
+11-14 00:21:36.793  2404  2424 I unitn   : [ 141.717] likes: added /storage/emulated/0/Music/TT/ES/2.wav
+11-14 00:21:39.832  2404  2424 I unitn   : [ 144.756] likes: removed /storage/emulated/0/Music/TT/ES/2.wav

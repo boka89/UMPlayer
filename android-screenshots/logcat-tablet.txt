@@ -1,0 +1,30 @@
+--------- beginning of main
+11-14 00:22:28.161  4032  4072 I unitn   : [   0.000] Unitn 0.6.0 on android x86_64
+11-14 00:22:28.162  4032  4072 I unitn   : [   0.001] startup: creating window
+11-14 00:22:28.168  4032  4075 I unitn   : [   0.007] audio: load File("/data/user/0/net.bokors.unitn/files/tmp/unitn-intro.m4a")
+11-14 00:22:28.169  4032  4072 I unitn   : [   0.009] startup: window shown
+11-14 00:22:28.170  4032  4072 I unitn   : [   0.009] startup: ready
+11-14 00:22:28.708  4032  4075 I unitn   : [   0.547] audio: output device "default", F32, 2 ch, 44100 Hz
+11-14 00:22:28.884  4032  4087 I unitn   : [   0.723] audio: preloading 0.1 MB
+11-14 00:22:28.928  4032  4075 I unitn   : [   0.767] audio: source ready, duration Some(6.521333333333334)
+11-14 00:22:28.928  4032  4075 I unitn   : [   0.767] audio: first chunk 2048 samples, 2 ch, 48000 Hz -> device 2 ch, 44100 Hz
+11-14 00:22:33.666  4032  4074 I unitn   : [   5.505] intro: 126 of 138 frames shown
+11-14 00:22:36.760  4164  4186 I unitn   : [   0.000] Unitn 0.6.0 on android x86_64
+11-14 00:22:36.761  4164  4186 I unitn   : [   0.001] startup: creating window
+11-14 00:22:36.861  4164  4186 I unitn   : [   0.100] startup: window shown
+11-14 00:22:36.867  4164  4186 I unitn   : [   0.107] startup: ready
+11-14 00:22:37.360  4164  4186 I unitn   : [   0.600] ui: autoplay https://oxygenmusic.hu:8443/oxygenmusic
+11-14 00:22:37.360  4164  4189 I unitn   : [   0.600] audio: load Url("https://oxygenmusic.hu:8443/oxygenmusic")
+11-14 00:22:37.501  4164  4189 I unitn   : [   0.741] audio: output device "default", F32, 2 ch, 44100 Hz
+11-14 00:22:38.003  4164  4213 I unitn   : [   1.243] audio: stream content type "audio/aac"
+11-14 00:22:38.003  4164  4213 I unitn   : [   1.243] audio: ADTS stream AdtsHeader { object_type: 2, rate_index: 7, channel_config: 2, header_len: 7, frame_len: 768, blocks: 1 }
+11-14 00:22:38.017  4164  4189 I unitn   : [   1.256] audio: source ready, duration None
+11-14 00:22:38.017  4164  4189 I unitn   : [   1.256] audio: first chunk 2048 samples, 2 ch, 22050 Hz -> device 2 ch, 44100 Hz
+11-14 00:22:38.206  4164  4186 I unitn   : [   1.446] ui: event State(Buffering)
+11-14 00:22:38.208  4164  4186 I unitn   : [   1.448] ui: event StreamTitle("Queen - We Will Rock You")
+11-14 00:22:38.209  4164  4186 I unitn   : [   1.448] ui: event Position { position: 0.0, duration: None }
+11-14 00:22:38.209  4164  4186 I unitn   : [   1.449] ui: event State(Playing)
+11-14 00:22:39.063  4164  4186 I unitn   : [   2.303] ui: event Position { position: 1.0409523809523809, duration: None }
+11-14 00:22:40.131  4164  4186 I unitn   : [   3.370] ui: event Position { position: 2.0156235827664397, duration: None }
+11-14 00:22:41.142  4164  4186 I unitn   : [   4.382] ui: event Position { position: 3.080952380952381, duration: None }
+11-14 00:22:42.154  4164  4186 I unitn   : [   5.393] ui: event Position { position: 4.093877551020408, duration: None }
